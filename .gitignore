@@ -63,7 +63,7 @@ examples/test_*_generated.py
 
 # 个人测试文件（用户自己写的测试用例，不需要提交）
 # 如果需要保留示例测试文件，可以注释掉下面两行
-examples/test_*.py
+examples/
 tests/test_*.py
 
 # 开发文档（内部文档，不需要提交）
