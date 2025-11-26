@@ -16,6 +16,7 @@
 """
 import asyncio
 import sys
+import time
 from typing import Dict, Optional, List
 
 from .device_manager import DeviceManager
@@ -406,19 +407,40 @@ class MobileClient:
                                     raise ValueError(f"无法找到元素: {ref}（已等待3秒，并尝试Cursor视觉识别，可能元素不存在）")
             
             # 验证点击（可选）
+            page_changed = False
             if verify:
-                # 使用智能等待，检测页面变化
-                await self.smart_wait.wait_after_action("点击", quick=False)
+                # 获取点击前页面状态
+                try:
+                    initial_xml = self.u2.dump_hierarchy()
+                    initial_length = len(initial_xml)
+                    
+                    # 等待页面变化
+                    page_changed = await self._verify_page_change(initial_length, timeout=2.0)
+                    
+                    if not page_changed:
+                        print(f"  ⚠️  点击后页面未变化，可能点击未生效", file=sys.stderr)
+                except Exception as e:
+                    print(f"  ⚠️  页面变化检测失败: {e}", file=sys.stderr)
             
             # 🎯 更新操作历史：记录实际使用的ref和成功状态
             if self.operation_history:
                 last_op = self.operation_history[-1]
                 if last_op.get('action') == 'click' and last_op.get('element') == element:
                     last_op['ref'] = ref  # 更新为实际使用的ref（可能是坐标）
-                    last_op['success'] = True
+                    last_op['success'] = True if not verify else page_changed
                     last_op['method'] = self._get_ref_method(ref)  # 记录定位方法
+                    if verify:
+                        last_op['verified'] = True
+                        last_op['page_changed'] = page_changed
             
-            return {"success": True, "ref": ref}
+            result = {"success": True, "ref": ref}
+            if verify:
+                result['verified'] = True
+                result['page_changed'] = page_changed
+                if not page_changed:
+                    result['warning'] = "点击命令执行但页面未变化，可能点击未生效"
+            
+            return result
             
         except Exception as e:
             # 🎯 更新操作历史：记录失败状态
@@ -443,17 +465,23 @@ class MobileClient:
         else:
             return 'text_or_desc'
     
-    async def type_text(self, element: str, text: str, ref: Optional[str] = None):
+    async def type_text(self, element: str, text: str, ref: Optional[str] = None, verify: bool = True):
         """
-        输入文本
+        输入文本（支持智能验证）
         
         Args:
             element: 元素描述（自然语言）
             text: 要输入的文本
             ref: 元素引用，None则自动定位
+            verify: 是否验证输入成功（检查文本是否真的输入）
             
         Returns:
-            操作结果
+            操作结果，包含：
+            - success: 是否成功
+            - ref: 使用的定位符
+            - verified: 是否经过验证
+            - input_verified: 输入是否被验证（仅 verify=True）
+            - actual_text: 实际输入框中的文本（仅 verify=True）
         """
         # iOS平台使用不同的实现
         if self.platform == "ios":
@@ -549,13 +577,55 @@ class MobileClient:
                     print(f"  ❌ text输入失败: {e}", file=sys.stderr)
                     raise ValueError(f"text输入失败: {ref}, 错误: {e}")
             
+            # 验证输入（可选）
+            input_verified = False
+            actual_text = None
+            if verify:
+                try:
+                    await asyncio.sleep(0.2)  # 等待输入完成
+                    
+                    # 尝试获取输入框中的实际文本
+                    if ref.startswith('com.') or ':' in ref:
+                        # resource-id定位
+                        elem = self.u2(resourceId=ref)
+                        if elem.exists(timeout=1):
+                            actual_text = elem.get_text()
+                    elif ref.startswith('[') and '][' in ref:
+                        # bounds坐标定位
+                        textbox = self.u2(className='android.widget.EditText')
+                        if textbox.exists(timeout=1):
+                            actual_text = textbox.get_text()
+                    else:
+                        # text定位
+                        elem = self.u2(text=ref)
+                        if elem.exists(timeout=1):
+                            actual_text = elem.get_text()
+                    
+                    # 验证输入的文本是否正确
+                    if actual_text is not None:
+                        # 注意：有些输入法可能会改变文本格式，所以做宽松匹配
+                        if text.strip() in actual_text or actual_text in text.strip():
+                            input_verified = True
+                            print(f"  ✅ 输入验证成功: '{actual_text}'", file=sys.stderr)
+                        else:
+                            print(f"  ⚠️  输入验证失败: 期望'{text}', 实际'{actual_text}'", file=sys.stderr)
+                    else:
+                        print(f"  ⚠️  无法获取输入框文本进行验证", file=sys.stderr)
+                except Exception as e:
+                    print(f"  ⚠️  输入验证失败: {e}", file=sys.stderr)
+            
             # 🎯 更新操作历史：记录实际使用的ref和成功状态
             if self.operation_history:
                 last_op = self.operation_history[-1]
                 if last_op.get('action') == 'type' and last_op.get('element') == element:
                     last_op['ref'] = ref  # 更新为实际使用的ref
-                    last_op['success'] = True
+                    last_op['success'] = True if not verify else input_verified
                     last_op['method'] = self._get_ref_method(ref)  # 记录定位方法
+                    if verify:
+                        last_op['verified'] = True
+                        last_op['input_verified'] = input_verified
+                        if actual_text:
+                            last_op['actual_text'] = actual_text
             
             # 🎯 特殊处理：如果是搜索框，输入后自动按搜索键
             if '搜索' in element.lower() or 'search' in element.lower():
@@ -575,7 +645,16 @@ class MobileClient:
                     except Exception as e2:
                         print(f"  ⚠️  无法按搜索键: {e2}", file=sys.stderr)
             
-            return {"success": True, "ref": ref}
+            result = {"success": True, "ref": ref}
+            if verify:
+                result['verified'] = True
+                result['input_verified'] = input_verified
+                if actual_text is not None:
+                    result['actual_text'] = actual_text
+                if not input_verified:
+                    result['warning'] = "输入命令执行但无法验证文本是否正确输入"
+            
+            return result
             
         except Exception as e:
             # 🎯 更新操作历史：记录失败状态
@@ -589,16 +668,21 @@ class MobileClient:
             error_ref = ref if ref else "unknown"
             return {"success": False, "reason": str(e), "ref": error_ref}
     
-    async def swipe(self, direction: str, distance: int = 500):
+    async def swipe(self, direction: str, distance: int = 500, verify: bool = True):
         """
-        滑动操作
+        滑动操作（支持智能验证）
         
         Args:
             direction: 滑动方向 ('up', 'down', 'left', 'right')
             distance: 滑动距离（像素）
+            verify: 是否验证滑动成功（检测页面内容变化）
             
         Returns:
-            操作结果
+            操作结果，包含：
+            - success: 是否成功
+            - direction: 滑动方向
+            - verified: 是否经过验证
+            - page_changed: 页面是否变化（仅 verify=True）
         """
         # 获取屏幕尺寸
         width, height = self.u2.window_size()
@@ -620,10 +704,40 @@ class MobileClient:
         x1, y1, x2, y2 = direction_map[direction]
         
         try:
+            # 验证滑动（可选）
+            initial_xml = None
+            initial_length = 0
+            if verify:
+                try:
+                    initial_xml = self.u2.dump_hierarchy()
+                    initial_length = len(initial_xml)
+                except Exception as e:
+                    print(f"  ⚠️  获取初始页面状态失败: {e}", file=sys.stderr)
+            
             print(f"  📍 滑动方向: {direction}, 坐标: ({x1}, {y1}) -> ({x2}, {y2})", file=sys.stderr)
             self.u2.swipe(x1, y1, x2, y2, duration=0.5)
-            print(f"  ✅ 滑动成功: {direction}", file=sys.stderr)
-            return {"success": True}
+            
+            # 验证滑动效果
+            page_changed = False
+            if verify and initial_xml is not None:
+                # 等待页面内容变化
+                page_changed = await self._verify_page_change(initial_length, timeout=1.5, change_threshold=0.03)
+                
+                if page_changed:
+                    print(f"  ✅ 滑动成功，页面内容已变化: {direction}", file=sys.stderr)
+                else:
+                    print(f"  ⚠️  滑动命令执行但页面内容未变化（可能已到边界）: {direction}", file=sys.stderr)
+            else:
+                print(f"  ✅ 滑动成功: {direction}", file=sys.stderr)
+            
+            result = {"success": True, "direction": direction}
+            if verify:
+                result['verified'] = True
+                result['page_changed'] = page_changed
+                if not page_changed:
+                    result['warning'] = "滑动命令执行但页面内容未变化，可能已到列表边界"
+            
+            return result
         except Exception as e:
             print(f"  ❌ 滑动失败: {e}", file=sys.stderr)
             return {"success": False, "reason": str(e)}
@@ -719,9 +833,9 @@ class MobileClient:
         except:
             return None
     
-    async def press_key(self, key: str):
+    async def press_key(self, key: str, verify: bool = True):
         """
-        按键盘按键
+        按键盘按键（支持智能验证）
         
         Args:
             key: 按键名称，支持：
@@ -730,9 +844,18 @@ class MobileClient:
                 - "back" / "返回" - 返回键
                 - "home" - Home键
                 - 或者直接使用keycode数字（如 66=Enter, 84=Search）
+            verify: 是否验证按键效果（默认True）
+                - True: 检测页面变化，确保按键真的生效
+                - False: 快速模式，执行后立即返回（不保证效果）
         
         Returns:
-            操作结果
+            操作结果，包含：
+            - success: 是否成功
+            - key: 按键名称
+            - keycode: 按键代码
+            - verified: 是否经过验证
+            - page_changed: 页面是否变化（仅 verify=True 时）
+            - fallback_used: 是否使用了备选方案（仅搜索键）
         """
         key_map = {
             'enter': 66,  # KEYCODE_ENTER
@@ -744,6 +867,8 @@ class MobileClient:
             'home': 3,  # KEYCODE_HOME
         }
         
+        is_search_key = key.lower() in ['search', '搜索'] or key == '84'
+        
         try:
             # 尝试解析为keycode数字
             if key.isdigit():
@@ -753,11 +878,39 @@ class MobileClient:
             else:
                 # 尝试直接使用u2.press方法（支持字符串按键名）
                 try:
+                    if verify:
+                        # 获取操作前页面状态
+                        initial_xml = self.u2.dump_hierarchy()
+                        initial_length = len(initial_xml)
+                    
                     self.u2.press(key.lower())
                     print(f"  ✅ 按键成功: {key}", file=sys.stderr)
-                    return {"success": True, "key": key}
+                    
+                    if verify:
+                        # 检测页面变化
+                        page_changed = await self._verify_page_change(initial_length, timeout=2.0)
+                        return {
+                            "success": page_changed,
+                            "key": key,
+                            "verified": True,
+                            "page_changed": page_changed,
+                            "message": "按键成功且页面已变化" if page_changed else "⚠️ 按键命令执行成功但页面未变化"
+                        }
+                    else:
+                        return {"success": True, "key": key, "verified": False}
                 except:
                     return {"success": False, "reason": f"不支持的按键: {key}"}
+            
+            # 搜索键特殊处理：先尝试keycode=84，失败则自动尝试keycode=66
+            if is_search_key and verify:
+                result = await self._press_search_key_with_fallback()
+                return result
+            
+            # 标准按键处理
+            if verify:
+                # 获取操作前页面状态
+                initial_xml = self.u2.dump_hierarchy()
+                initial_length = len(initial_xml)
             
             # 使用keycode按键 - uiautomator2使用shell命令
             try:
@@ -770,11 +923,150 @@ class MobileClient:
                                'shell', 'input', 'keyevent', str(keycode)], 
                                check=True, timeout=5)
             
-            print(f"  ✅ 按键成功: {key} (keycode={keycode})", file=sys.stderr)
-            return {"success": True, "key": key, "keycode": keycode}
+            if verify:
+                # 等待并检测页面变化
+                page_changed = await self._verify_page_change(initial_length, timeout=2.0)
+                
+                if page_changed:
+                    print(f"  ✅ 按键成功且页面已变化: {key} (keycode={keycode})", file=sys.stderr)
+                    return {
+                        "success": True,
+                        "key": key,
+                        "keycode": keycode,
+                        "verified": True,
+                        "page_changed": True,
+                        "message": "按键成功且页面已变化"
+                    }
+                else:
+                    print(f"  ⚠️  按键命令执行但页面未变化: {key} (keycode={keycode})", file=sys.stderr)
+                    return {
+                        "success": False,
+                        "key": key,
+                        "keycode": keycode,
+                        "verified": True,
+                        "page_changed": False,
+                        "message": "按键命令执行成功但页面未变化，可能按键未生效"
+                    }
+            else:
+                # 快速模式：不验证，直接返回
+                print(f"  ✅ 按键成功（未验证）: {key} (keycode={keycode})", file=sys.stderr)
+                return {"success": True, "key": key, "keycode": keycode, "verified": False}
+                
         except Exception as e:
             print(f"  ❌ 按键失败: {e}", file=sys.stderr)
             return {"success": False, "reason": str(e)}
+    
+    async def _press_search_key_with_fallback(self) -> Dict:
+        """
+        搜索键的特殊处理：尝试多种方案
+        
+        策略：
+        1. 先尝试 keycode=84 (SEARCH键)
+        2. 如果页面没变化，尝试 keycode=66 (ENTER键)
+        3. 返回真实的成功/失败状态
+        
+        Returns:
+            操作结果
+        """
+        print(f"  🔍 智能搜索键：先尝试SEARCH键...", file=sys.stderr)
+        
+        # 获取初始页面状态
+        initial_xml = self.u2.dump_hierarchy()
+        initial_length = len(initial_xml)
+        
+        # 方案1: 尝试 SEARCH 键 (keycode=84)
+        try:
+            self.u2.shell('input keyevent 84')
+            print(f"  ⏳ 已发送SEARCH键，等待页面变化...", file=sys.stderr)
+            
+            # 检测页面变化
+            page_changed = await self._verify_page_change(initial_length, timeout=2.0)
+            
+            if page_changed:
+                print(f"  ✅ SEARCH键生效，页面已变化", file=sys.stderr)
+                return {
+                    "success": True,
+                    "key": "search",
+                    "keycode": 84,
+                    "verified": True,
+                    "page_changed": True,
+                    "fallback_used": False,
+                    "message": "搜索键(SEARCH)生效"
+                }
+            else:
+                print(f"  ⚠️  SEARCH键未生效，尝试备选方案ENTER键...", file=sys.stderr)
+                
+                # 方案2: 尝试 ENTER 键 (keycode=66)
+                # 重新获取当前页面状态（因为可能有轻微变化）
+                current_xml = self.u2.dump_hierarchy()
+                current_length = len(current_xml)
+                
+                self.u2.shell('input keyevent 66')
+                print(f"  ⏳ 已发送ENTER键，等待页面变化...", file=sys.stderr)
+                
+                # 再次检测页面变化
+                page_changed_enter = await self._verify_page_change(current_length, timeout=2.0)
+                
+                if page_changed_enter:
+                    print(f"  ✅ ENTER键生效，页面已变化", file=sys.stderr)
+                    return {
+                        "success": True,
+                        "key": "search",
+                        "keycode": 66,
+                        "verified": True,
+                        "page_changed": True,
+                        "fallback_used": True,
+                        "message": "搜索键(SEARCH)无效，已使用ENTER键替代并成功"
+                    }
+                else:
+                    print(f"  ❌ SEARCH和ENTER键都未生效", file=sys.stderr)
+                    return {
+                        "success": False,
+                        "key": "search",
+                        "verified": True,
+                        "page_changed": False,
+                        "fallback_used": True,
+                        "message": "搜索键(SEARCH)和ENTER键都未生效，请检查输入框焦点或应用是否响应"
+                    }
+        except Exception as e:
+            print(f"  ❌ 搜索键执行失败: {e}", file=sys.stderr)
+            return {"success": False, "reason": str(e)}
+    
+    async def _verify_page_change(self, initial_length: int, timeout: float = 2.0, change_threshold: float = 0.05) -> bool:
+        """
+        验证页面是否发生变化
+        
+        Args:
+            initial_length: 初始页面XML长度
+            timeout: 最大等待时间（秒）
+            change_threshold: 变化阈值（百分比，默认5%）
+        
+        Returns:
+            页面是否发生了明显变化
+        """
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            await asyncio.sleep(0.1)  # 每100ms检查一次
+            
+            try:
+                current_xml = self.u2.dump_hierarchy()
+                current_length = len(current_xml)
+                
+                # 计算变化百分比
+                change_percent = abs(current_length - initial_length) / max(1, initial_length)
+                
+                if change_percent > change_threshold:
+                    print(f"  📊 页面变化检测: {change_percent*100:.1f}% (阈值: {change_threshold*100}%)", file=sys.stderr)
+                    # 等待页面稳定
+                    await asyncio.sleep(0.3)
+                    return True
+            except Exception as e:
+                print(f"  ⚠️  页面变化检测异常: {e}", file=sys.stderr)
+                pass
+        
+        print(f"  📊 页面变化检测: 未检测到明显变化（超时{timeout}秒）", file=sys.stderr)
+        return False
     
     def _parse_bounds_coords(self, bounds_str: str) -> tuple:
         """

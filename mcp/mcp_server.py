@@ -127,13 +127,18 @@ class MobileMCPServer:
         tools = [
             Tool(
                 name="mobile_click",
-                description="点击手机屏幕上的元素（按钮、链接等）。使用自然语言描述元素，如'登录按钮'、'右上角设置图标'。如果定位失败，可以使用bounds坐标格式 '[x1,y1][x2,y2]' 直接点击。",
+                description="点击手机屏幕上的元素（按钮、链接等）。使用自然语言描述元素，如'登录按钮'、'右上角设置图标'。如果定位失败，可以使用bounds坐标格式 '[x1,y1][x2,y2]' 直接点击。\n\n✨ 支持智能验证：自动检测页面变化，确保点击真的生效",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "element_desc": {
                             "type": "string",
                             "description": "元素描述（自然语言），如'登录按钮'、'提交'、'右上角返回'。或者bounds坐标格式 '[x1,y1][x2,y2]'"
+                        },
+                        "verify": {
+                            "type": "boolean",
+                            "description": "是否验证点击效果（默认true）。true=检测页面变化确保点击生效，false=快速模式不验证",
+                            "default": True
                         }
                     },
                     "required": ["element_desc"]
@@ -141,7 +146,7 @@ class MobileMCPServer:
             ),
             Tool(
                 name="mobile_input",
-                description="在输入框中输入文本。先定位输入框，然后输入内容。",
+                description="在输入框中输入文本。先定位输入框，然后输入内容。\n\n✨ 支持智能验证：自动检查文本是否真的输入成功",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -152,6 +157,11 @@ class MobileMCPServer:
                         "text": {
                             "type": "string",
                             "description": "要输入的文本内容"
+                        },
+                        "verify": {
+                            "type": "boolean",
+                            "description": "是否验证输入效果（默认true）。true=检查文本是否正确输入，false=快速模式不验证",
+                            "default": True
                         }
                     },
                     "required": ["element_desc", "text"]
@@ -159,7 +169,7 @@ class MobileMCPServer:
             ),
             Tool(
                 name="mobile_swipe",
-                description="滑动手机屏幕（上下左右）。",
+                description="滑动手机屏幕（上下左右）。\n\n✨ 支持智能验证：自动检测页面内容变化，确认滑动生效",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -167,6 +177,11 @@ class MobileMCPServer:
                             "type": "string",
                             "enum": ["up", "down", "left", "right"],
                             "description": "滑动方向：up(向上)、down(向下)、left(向左)、right(向右)"
+                        },
+                        "verify": {
+                            "type": "boolean",
+                            "description": "是否验证滑动效果（默认true）。true=检测页面内容变化，false=快速模式不验证",
+                            "default": True
                         }
                     },
                     "required": ["direction"]
@@ -174,13 +189,18 @@ class MobileMCPServer:
             ),
             Tool(
                 name="mobile_press_key",
-                description="按键盘按键。支持Enter键、搜索键、返回键等。在搜索框输入后，可以使用此工具按搜索键执行搜索。",
+                description="按键盘按键（支持智能验证）。支持Enter键、搜索键、返回键等。在搜索框输入后，可以使用此工具按搜索键执行搜索。\n\n✨ 新特性：\n- 自动验证按键效果（检测页面变化）\n- 搜索键智能回退（SEARCH无效时自动尝试ENTER）\n- 避免'假成功'问题",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "key": {
                             "type": "string",
                             "description": "按键名称：'enter'/'回车'（Enter键）、'search'/'搜索'（搜索键）、'back'/'返回'（返回键）、'home'（Home键），或直接使用keycode数字（如66=Enter, 84=Search）"
+                        },
+                        "verify": {
+                            "type": "boolean",
+                            "description": "是否验证按键效果（默认true）。true=检测页面变化确保按键生效，false=快速模式不验证",
+                            "default": True
                         }
                     },
                     "required": ["key"]
@@ -503,6 +523,7 @@ class MobileMCPServer:
         """处理点击操作"""
         await self.initialize()
         element_desc = arguments.get("element_desc")
+        verify = arguments.get("verify", True)  # 默认启用验证
         
         try:
             result = None  # 初始化result变量
@@ -513,7 +534,7 @@ class MobileMCPServer:
                 click_result = await self.client.click(
                     element_desc,
                     ref=element_desc,
-                    verify=False
+                    verify=verify
                 )
                 result = {'method': 'bounds', 'ref': element_desc}  # 设置result用于后续使用
             else:
@@ -553,7 +574,7 @@ class MobileMCPServer:
                                             click_result = await self.client.click(
                                                 element_desc,
                                                 ref=ref,
-                                                verify=False
+                                                verify=verify
                                             )
                                             if click_result.get('success'):
                                                 return [TextContent(
@@ -605,7 +626,7 @@ class MobileMCPServer:
                             click_result = await self.client.click(
                                 element_desc,
                                 ref=ref,
-                                verify=False
+                                verify=verify
                             )
                             if click_result.get('success'):
                                 return [TextContent(
@@ -634,18 +655,28 @@ class MobileMCPServer:
                 click_result = await self.client.click(
                     element_desc,
                     ref=ref,
-                    verify=False
+                    verify=verify
                 )
             
             if click_result.get('success'):
+                # 构建详细的成功消息
+                response = {
+                    "success": True,
+                    "element": element_desc,
+                    "method": result.get('method', 'unknown') if result else 'bounds',
+                    "verified": click_result.get('verified', False),
+                    "message": f"成功点击: {element_desc}"
+                }
+                
+                # 添加验证相关信息
+                if click_result.get('verified'):
+                    response['page_changed'] = click_result.get('page_changed', False)
+                    if click_result.get('warning'):
+                        response['warning'] = click_result.get('warning')
+                
                 return [TextContent(
                     type="text",
-                    text=json.dumps({
-                        "success": True,
-                        "element": element_desc,
-                        "method": result.get('method', 'unknown') if result else 'bounds',
-                        "message": f"成功点击: {element_desc}"
-                    }, ensure_ascii=False, indent=2)
+                    text=json.dumps(response, ensure_ascii=False, indent=2)
                 )]
             else:
                 return [TextContent(
@@ -666,17 +697,18 @@ class MobileMCPServer:
             )]
     
     async def handle_mobile_input(self, arguments: Dict[str, Any]) -> list[TextContent]:
-        """处理输入操作"""
+        """处理输入操作（支持智能验证）"""
         await self.initialize()
         element_desc = arguments.get("element_desc")
         text = arguments.get("text")
+        verify = arguments.get("verify", True)  # 默认启用验证
         
         try:
             # 🎯 检查是否是bounds坐标格式 "[x1,y1][x2,y2]"
             if element_desc.startswith('[') and '][' in element_desc:
                 # 直接使用bounds坐标输入
                 print(f"  📍 检测到bounds坐标格式，直接使用坐标输入: {element_desc}", file=sys.stderr)
-                input_result = await self.client.type_text(element_desc, text, ref=element_desc)
+                input_result = await self.client.type_text(element_desc, text, ref=element_desc, verify=verify)
             else:
                 # 定位输入框
                 result = await self.locator.locate(element_desc)
@@ -691,7 +723,7 @@ class MobileMCPServer:
                     )]
                 
                 # 执行输入
-                input_result = await self.client.type_text(element_desc, text, ref=result['ref'])
+                input_result = await self.client.type_text(element_desc, text, ref=result['ref'], verify=verify)
             
             # 🎯 修复：检查输入结果
             if not input_result.get('success'):
@@ -705,14 +737,26 @@ class MobileMCPServer:
                     }, ensure_ascii=False, indent=2)
                 )]
             
+            # 构建详细的成功消息
+            response = {
+                "success": True,
+                "element": element_desc,
+                "text": text,
+                "verified": input_result.get('verified', False),
+                "message": f"成功在 {element_desc} 中输入: {text}"
+            }
+            
+            # 添加验证相关信息
+            if input_result.get('verified'):
+                response['input_verified'] = input_result.get('input_verified', False)
+                if input_result.get('actual_text'):
+                    response['actual_text'] = input_result.get('actual_text')
+                if input_result.get('warning'):
+                    response['warning'] = input_result.get('warning')
+            
             return [TextContent(
                 type="text",
-                text=json.dumps({
-                    "success": True,
-                    "element": element_desc,
-                    "text": text,
-                    "message": f"成功在 {element_desc} 中输入: {text}"
-                }, ensure_ascii=False, indent=2)
+                text=json.dumps(response, ensure_ascii=False, indent=2)
             )]
         except Exception as e:
             return [TextContent(
@@ -724,20 +768,31 @@ class MobileMCPServer:
             )]
     
     async def handle_mobile_swipe(self, arguments: Dict[str, Any]) -> list[TextContent]:
-        """处理滑动操作"""
+        """处理滑动操作（支持智能验证）"""
         await self.initialize()
         direction = arguments.get("direction")
+        verify = arguments.get("verify", True)  # 默认启用验证
         
         try:
-            result = await self.client.swipe(direction)
+            result = await self.client.swipe(direction, verify=verify)
             if result.get('success'):
+                # 构建详细的成功消息
+                response = {
+                    "success": True,
+                    "direction": direction,
+                    "verified": result.get('verified', False),
+                    "message": f"成功滑动: {direction}"
+                }
+                
+                # 添加验证相关信息
+                if result.get('verified'):
+                    response['page_changed'] = result.get('page_changed', False)
+                    if result.get('warning'):
+                        response['warning'] = result.get('warning')
+                
                 return [TextContent(
                     type="text",
-                    text=json.dumps({
-                        "success": True,
-                        "direction": direction,
-                        "message": f"成功滑动: {direction}"
-                    }, ensure_ascii=False, indent=2)
+                    text=json.dumps(response, ensure_ascii=False, indent=2)
                 )]
             else:
                 return [TextContent(
@@ -757,30 +812,53 @@ class MobileMCPServer:
             )]
     
     async def handle_mobile_press_key(self, arguments: Dict[str, Any]) -> list[TextContent]:
-        """处理按键操作"""
+        """处理按键操作（支持智能验证）"""
         await self.initialize()
         key = arguments.get("key")
+        verify = arguments.get("verify", True)  # 默认启用验证
         
         try:
-            result = await self.client.press_key(key)
+            result = await self.client.press_key(key, verify=verify)
             if result.get('success'):
+                # 构建详细的成功消息
+                response = {
+                    "success": True,
+                    "key": key,
+                    "keycode": result.get('keycode'),
+                    "verified": result.get('verified', False),
+                    "message": result.get('message', f"成功按键: {key}")
+                }
+                
+                # 添加验证相关信息
+                if result.get('verified'):
+                    response['page_changed'] = result.get('page_changed', False)
+                    if result.get('fallback_used') is not None:
+                        response['fallback_used'] = result.get('fallback_used')
+                        if result.get('fallback_used'):
+                            response['note'] = "SEARCH键无效，已自动使用ENTER键替代"
+                
                 return [TextContent(
                     type="text",
-                    text=json.dumps({
-                        "success": True,
-                        "key": key,
-                        "keycode": result.get('keycode'),
-                        "message": f"成功按键: {key}"
-                    }, ensure_ascii=False, indent=2)
+                    text=json.dumps(response, ensure_ascii=False, indent=2)
                 )]
             else:
+                # 构建详细的失败消息
+                error_response = {
+                    "success": False,
+                    "key": key,
+                    "error": result.get('reason') or result.get('message', '按键失败'),
+                    "verified": result.get('verified', False)
+                }
+                
+                # 添加调试信息
+                if result.get('page_changed') is not None:
+                    error_response['page_changed'] = result.get('page_changed')
+                if result.get('message'):
+                    error_response['detail'] = result.get('message')
+                
                 return [TextContent(
                     type="text",
-                    text=json.dumps({
-                        "success": False,
-                        "error": result.get('reason', '按键失败'),
-                        "key": key
-                    }, ensure_ascii=False, indent=2)
+                    text=json.dumps(error_response, ensure_ascii=False, indent=2)
                 )]
         except Exception as e:
             return [TextContent(

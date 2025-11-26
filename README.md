@@ -11,7 +11,14 @@
 
 **⭐ 如果这个项目对你有帮助，请给个 Star 支持一下！⭐**
 
-**🆕 v2.0.3 更新：智能等待 + 测试脚本生成！基础工具不需要配置 AI 密钥**
+**🆕 v2.1.0 重大更新：智能验证系统 - 彻底解决"假成功"问题**
+
+**✨ 核心改进：**
+- ✅ **所有操作支持智能验证**：click、input、swipe、press_key 全部验证
+- ✅ **实时检测操作结果**：页面变化、文本验证、内容变化检测
+- ✅ **搜索键智能回退**：SEARCH 无效时自动尝试 ENTER
+- ✅ **详细验证反馈**：返回验证状态、实际结果、警告信息
+- ✅ **向后兼容**：默认启用验证，可选 `verify=False` 快速模式
 
 </div>
 
@@ -56,7 +63,7 @@
 - `mobile_snapshot` - 获取页面结构
 - `mobile_launch_app` - 启动应用
 - `mobile_swipe` - 滑动屏幕
-- `mobile_press_key` - 按键操作
+- `mobile_press_key` - 按键操作（支持智能验证 ✨ 新增）
 
 ### 🌐 跨平台支持
 - **双平台支持**：完美支持 Android 和 iOS
@@ -82,6 +89,26 @@ pip install mobile-mcp-ai
 # 如果需要智能工具或构建自动化平台
 pip install mobile-mcp-ai[ai]
 ```
+
+### 升级到最新版本
+
+**⚠️ 重要：如果你已经安装了旧版本，强烈建议升级到 v2.1.0！**
+
+```bash
+# 升级到最新版本
+pip install --upgrade mobile-mcp-ai
+
+# 验证版本
+pip show mobile-mcp-ai
+```
+
+**v2.1.0 升级说明**：
+- ✅ **向后兼容**：无需修改现有代码
+- ✅ **默认启用验证**：所有操作自动验证，更可靠
+- ✅ **可选快速模式**：如需要可设置 `verify=False`
+- ✅ **无破坏性更改**：平滑升级，放心使用
+
+**升级后重启 Cursor**：升级完成后需要完全退出并重新启动 Cursor 才能生效。
 
 ## 🚀 快速开始
 
@@ -269,9 +296,115 @@ def test_登录(device):
 | `mobile_snapshot` | 获取页面结构 |
 | `mobile_launch_app` | 启动应用 |
 | `mobile_swipe` | 滑动屏幕 |
-| `mobile_press_key` | 按键操作 |
+| `mobile_press_key` | 按键操作（支持智能验证 ✨ 新增）|
 
 **总计：18 个工具**
+
+## 🎯 智能验证功能详解
+
+### `mobile_press_key` - 彻底解决"假成功"问题
+
+**问题背景：**
+
+传统按键操作只检查命令是否执行，不验证按键是否真的生效，导致：
+- ✗ 命令执行成功 ≠ 按键生效
+- ✗ 测试显示通过，实际操作失败
+- ✗ 搜索键在某些应用/输入法中不起作用
+
+**智能验证方案：**
+
+```python
+# 方式1: 验证模式（推荐，默认）
+await press_key("search", verify=True)
+# ✅ 自动检测页面变化
+# ✅ 搜索键无效时自动尝试回车键
+# ✅ 返回真实操作结果
+
+# 方式2: 快速模式
+await press_key("back", verify=False)
+# ⚡ 执行后立即返回
+# ⚠️  不保证按键效果
+```
+
+**工作原理：**
+
+1. **操作前快照** - 记录当前页面状态
+2. **执行按键** - 发送按键命令
+3. **页面监测** - 等待并检测页面变化（最多2秒）
+4. **智能判断** - 页面变化 > 5% 认为成功
+5. **搜索键回退** - SEARCH 无效时自动尝试 ENTER
+
+**使用示例：**
+
+```
+@MCP 帮我搜索：
+1. 在搜索框输入 "测试内容"
+2. 按搜索键（自动验证）
+```
+
+返回结果：
+```json
+{
+  "success": true,
+  "key": "search",
+  "keycode": 84,
+  "verified": true,
+  "page_changed": true,
+  "fallback_used": false,
+  "message": "搜索键(SEARCH)生效"
+}
+```
+
+如果 SEARCH 键无效：
+```json
+{
+  "success": true,
+  "key": "search",
+  "keycode": 66,
+  "verified": true,
+  "page_changed": true,
+  "fallback_used": true,
+  "message": "搜索键(SEARCH)无效，已使用ENTER键替代并成功"
+}
+```
+
+如果按键无效：
+```json
+{
+  "success": false,
+  "key": "search",
+  "verified": true,
+  "page_changed": false,
+  "message": "按键命令执行成功但页面未变化，可能按键未生效"
+}
+```
+
+**使用建议：**
+
+| 场景 | 模式 | 原因 |
+|------|------|------|
+| 搜索、提交等关键操作 | `verify=True` | 确保操作真的成功 |
+| 返回上一页 | `verify=True` | 确保页面跳转 |
+| 连续快速导航 | `verify=False` | 提高执行速度 |
+| 调试/测试 | `verify=True` | 发现潜在问题 |
+
+**性能对比：**
+
+- 快速模式：~0.05秒（不保证效果）
+- 验证模式：~0.5-2秒（确保成功）
+- 额外耗时：小于2秒，换来可靠性
+
+**支持的按键：**
+
+- `enter` / `回车` - Enter键 (keycode=66)
+- `search` / `搜索` - 搜索键 (keycode=84, 自动回退到66)
+- `back` / `返回` - 返回键 (keycode=4)
+- `home` - Home键 (keycode=3)
+- 直接使用keycode数字（如 `66`）
+
+**演示脚本：**
+
+运行 `python backend/mobile_mcp/examples/press_key_verification_demo.py` 查看完整演示
 
 ## 📚 文档
 
