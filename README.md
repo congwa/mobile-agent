@@ -83,7 +83,7 @@ pip install mobile-mcp-ai[ai]
 {
   "mcpServers": {
     "mobile-automation": {
-      "command": "python",
+      "command": "python", //当前项目python路径
       "args": ["-m", "mobile_mcp.mcp.mcp_server_simple"],
       "env": {}
     }
