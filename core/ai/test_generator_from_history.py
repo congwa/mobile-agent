@@ -220,7 +220,7 @@ class TestGeneratorFromHistory:
                 is_popup = self._is_popup_element(element, ref)
                 
                 script_lines.append(f"        # 步骤{step_index}: 点击 {element}")
-                script_lines.append(f"        print(f\"\\n步骤{step_index}: 点击 {element}\")", file=sys.stderr)
+                script_lines.append(f"        print(f\"\\n步骤{step_index}: 点击 {element}\", file=sys.stderr)")
                 
                 # 🎯 弹窗元素：可选操作（不出现也不报错）
                 if is_popup:
@@ -237,40 +237,40 @@ class TestGeneratorFromHistory:
                         x, y = parts[0], parts[1]
                         script_lines.append(f"            # 优先使用MCP验证过的坐标")
                         script_lines.append(f"            client.u2.click({x}, {y})")
-                        script_lines.append(f"            print(f\"✅ 点击成功（坐标: {x}, {y}）\")", file=sys.stderr)
+                        script_lines.append(f"            print(f\"✅ 点击成功（坐标: {x}, {y}）\", file=sys.stderr)")
                 elif ref.startswith('[') and '][' in ref:
                     # bounds坐标：[x1,y1][x2,y2]
                     script_lines.append(f"            # 优先使用MCP验证过的bounds")
                     script_lines.append(f"            await client.click(\"{element}\", ref=\"{ref}\", verify=False)")
-                    script_lines.append(f"            print(f\"✅ 点击成功（bounds: {ref}）\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"✅ 点击成功（bounds: {ref}）\", file=sys.stderr)")
                 elif ref.startswith('com.') or ':' in ref:
                     # resource-id定位
                     script_lines.append(f"            # 优先使用MCP验证过的resource-id")
                     script_lines.append(f"            await client.click(\"{element}\", ref=\"{ref}\", verify=False)")
-                    script_lines.append(f"            print(f\"✅ 点击成功（resource-id: {ref}）\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"✅ 点击成功（resource-id: {ref}）\", file=sys.stderr)")
                 else:
                     # text/description定位
                     script_lines.append(f"            # 优先使用MCP验证过的text/description")
                     script_lines.append(f"            await client.click(\"{element}\", ref=\"{ref}\", verify=False)")
-                    script_lines.append(f"            print(f\"✅ 点击成功（text: {ref}）\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"✅ 点击成功（text: {ref}）\", file=sys.stderr)")
                 
                 # 添加降级逻辑（区分弹窗和普通元素）
                 if is_popup:
                     # 🎯 弹窗：失败不报错，只打印提示
                     script_lines.append(f"        except Exception as e:")
                     script_lines.append(f"            # 弹窗未出现，跳过")
-                    script_lines.append(f"            print(f\"ℹ️  '{element}'未出现，跳过（可能已授权或无需操作）\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"ℹ️  '{element}'未出现，跳过（可能已授权或无需操作）\", file=sys.stderr)")
                 else:
                     # 🎯 普通元素：失败后启用智能定位
                     script_lines.append(f"        except Exception as e:")
                     script_lines.append(f"            # 🎯 原定位失效，启用智能定位（自愈）")
-                    script_lines.append(f"            print(f\"⚠️  原定位失效: {{e}}\")", file=sys.stderr)
-                    script_lines.append(f"            print(f\"🔍 启用智能定位重新查找'{element}'...\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"⚠️  原定位失效: {{e}}\", file=sys.stderr)")
+                    script_lines.append(f"            print(f\"🔍 启用智能定位重新查找'{element}'...\", file=sys.stderr)")
                     script_lines.append(f"            ")
                     script_lines.append(f"            locate_result = await client.smart_locator.locate(\"{element}\")")
                     script_lines.append(f"            if locate_result:")
                     script_lines.append(f"                await client.click(\"{element}\", ref=locate_result['ref'], verify=False)")
-                    script_lines.append(f"                print(f\"✅ 智能定位成功: {{locate_result['ref']}}\")", file=sys.stderr)
+                    script_lines.append(f"                print(f\"✅ 智能定位成功: {{locate_result['ref']}}\", file=sys.stderr)")
                     script_lines.append(f"            else:")
                     script_lines.append(f"                raise Exception(f\"❌ 智能定位也失败了，元素'{element}'可能已被删除或页面结构大幅改变\")")
                 script_lines.append(f"        ")
@@ -286,7 +286,7 @@ class TestGeneratorFromHistory:
             elif action == 'type':
                 text = operation.get('text', '')
                 script_lines.append(f"        # 步骤{step_index}: 在{element}输入 {text}")
-                script_lines.append(f"        print(f\"\\n步骤{step_index}: 在{element}输入 {text}\")", file=sys.stderr)
+                script_lines.append(f"        print(f\"\\n步骤{step_index}: 在{element}输入 {text}\", file=sys.stderr)")
                 
                 # 🎯 生成智能定位 + 自动降级代码
                 script_lines.append(f"        try:")
@@ -316,23 +316,23 @@ class TestGeneratorFromHistory:
                     # bounds坐标
                     script_lines.append(f"            # 优先使用MCP验证过的bounds")
                     script_lines.append(f"            await client.type_text(\"{element}\", \"{text}\", ref=\"{ref}\")")
-                    script_lines.append(f"            print(f\"✅ 输入成功（bounds: {ref}）\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"✅ 输入成功（bounds: {ref}）\", file=sys.stderr)")
                 elif ref.startswith('com.') or ':' in ref:
                     # resource-id定位
                     script_lines.append(f"            # 优先使用MCP验证过的resource-id")
                     script_lines.append(f"            await client.type_text(\"{element}\", \"{text}\", ref=\"{ref}\")")
-                    script_lines.append(f"            print(f\"✅ 输入成功（resource-id: {ref}）\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"✅ 输入成功（resource-id: {ref}）\", file=sys.stderr)")
                 else:
                     # text定位
                     script_lines.append(f"            # 优先使用MCP验证过的text")
                     script_lines.append(f"            await client.type_text(\"{element}\", \"{text}\", ref=\"{ref}\")")
-                    script_lines.append(f"            print(f\"✅ 输入成功（text: {ref}）\")", file=sys.stderr)
+                    script_lines.append(f"            print(f\"✅ 输入成功（text: {ref}）\", file=sys.stderr)")
                 
                 # 添加降级逻辑
                 script_lines.append(f"        except Exception as e:")
                 script_lines.append(f"            # 🎯 原定位失效，启用智能定位（自愈）")
-                script_lines.append(f"            print(f\"⚠️  原定位失效: {{e}}\")", file=sys.stderr)
-                script_lines.append(f"            print(f\"🔍 启用智能定位重新查找'{element}'...\")", file=sys.stderr)
+                script_lines.append(f"            print(f\"⚠️  原定位失效: {{e}}\", file=sys.stderr)")
+                script_lines.append(f"            print(f\"🔍 启用智能定位重新查找'{element}'...\", file=sys.stderr)")
                 script_lines.append(f"            ")
                 script_lines.append(f"            locate_result = await client.smart_locator.locate(\"{element}\")")
                 script_lines.append(f"            if locate_result:")
@@ -345,7 +345,7 @@ class TestGeneratorFromHistory:
                 script_lines.append(f"                await asyncio.sleep(0.2)")
                 script_lines.append(f"                # 输入")
                 script_lines.append(f"                await client.type_text(\"{element}\", \"{text}\", ref=locate_result['ref'])")
-                script_lines.append(f"                print(f\"✅ 智能定位成功: {{locate_result['ref']}}\")", file=sys.stderr)
+                script_lines.append(f"                print(f\"✅ 智能定位成功: {{locate_result['ref']}}\", file=sys.stderr)")
                 script_lines.append(f"            else:")
                 script_lines.append(f"                raise Exception(f\"❌ 智能定位也失败了，元素'{element}'可能已被删除或页面结构大幅改变\")")
                 script_lines.append(f"        ")

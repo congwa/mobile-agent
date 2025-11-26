@@ -324,8 +324,9 @@ class CursorVisionHelper:
             print(f"💡 Cursor AI会自动读取请求文件并分析截图")
             
             # 等待Cursor AI分析（轮询结果文件）
-            max_wait = 30  # 最多等待30秒
-            wait_interval = 1  # 每秒检查一次
+            # 🎯 优化：缩短等待时间，避免阻塞过久
+            max_wait = 10  # 最多等待10秒（原30秒太长）
+            wait_interval = 0.5  # 每0.5秒检查一次（提高响应速度）
             waited = 0
             
             while waited < max_wait:

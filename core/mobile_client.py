@@ -645,9 +645,11 @@ class MobileClient:
             if smart_wait:
                 from .smart_app_launcher import SmartAppLauncher
                 launcher = SmartAppLauncher(self)
+                # 优化：默认5秒，最多不超过8秒
+                smart_wait_time = min(max(5, wait_time), 8)
                 result = await launcher.launch_with_smart_wait(
                     package_name,
-                    max_wait=max(10, wait_time),  # 至少等待10秒
+                    max_wait=smart_wait_time,
                     auto_close_ads=True
                 )
                 return result

@@ -414,7 +414,7 @@ class MobileMCPServer:
             ),
             Tool(
                 name="mobile_generate_test_script",
-                description="基于操作历史生成pytest格式的测试脚本。使用已验证的定位方式（坐标、bounds等），确保生成的脚本100%可执行。生成的脚本支持pytest批量执行和allure报告生成。需要AI增强功能支持。",
+                description="基于操作历史生成pytest格式的测试脚本。使用已验证的定位方式（坐标、bounds等），确保生成的脚本100%可执行。生成的脚本支持pytest批量执行和allure报告生成。脚本默认保存到当前工作目录的tests子目录。",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -429,6 +429,10 @@ class MobileMCPServer:
                         "filename": {
                             "type": "string",
                             "description": "生成的脚本文件名（不含.py后缀），如'test_建议发帖'"
+                        },
+                        "output_dir": {
+                            "type": "string",
+                            "description": "输出目录路径（可选）。默认为当前工作目录的tests子目录"
                         }
                     },
                     "required": ["test_name", "package_name", "filename"]
@@ -483,15 +487,15 @@ class MobileMCPServer:
                     tool.description = f"分析截图并返回元素坐标。使用{platform_name}的多模态能力分析截图，找到指定元素并返回坐标。支持自动模式（通过request_id）和手动模式（直接提供screenshot_path）。"
                     break
         
-        # 如果没有AI平台，移除AI增强工具
+        # 如果没有AI平台，移除需要AI视觉能力的工具
+        # 注意：mobile_generate_test_script 不需要AI，只是基于操作历史生成脚本，所以保留
         if not self.ai_adapter or not self.ai_adapter.is_vision_available():
             tools = [t for t in tools if t.name not in [
                 "mobile_analyze_screenshot",
-                "mobile_execute_test_case",
-                "mobile_generate_test_script"
+                "mobile_execute_test_case"
             ]]
             if Config.is_ai_enhancement_enabled():
-                print("⚠️  AI增强工具已禁用（未检测到可用的AI平台）", file=sys.stderr)
+                print("⚠️  AI视觉增强工具已禁用（未检测到可用的AI平台）", file=sys.stderr)
         
         return tools
     
@@ -1153,17 +1157,25 @@ AI平台: {platform_name}
             package_name = arguments.get("package_name")
             filename = arguments.get("filename")
             
-            # 使用测试生成器生成脚本
-            from mobile_mcp.core.ai.test_generator_from_history import TestGeneratorFromHistory
+            # 🎯 使用独立测试生成器（不依赖 mobile_mcp 包）
+            from mobile_mcp.core.ai.test_generator_standalone import StandaloneTestGenerator
+            import os
             
-            # 使用文件开头已定义的 mobile_mcp_dir
-            # 🎯 pytest脚本保存在tests目录
-            output_dir_path = mobile_mcp_dir / "tests"
-            output_dir_path.mkdir(exist_ok=True)
+            # 🎯 保存到用户当前工作目录的 tests 子目录
+            # 如果用户在 Cursor 中打开了项目，cwd 就是项目根目录
+            output_dir = arguments.get("output_dir")  # 用户可以指定输出目录
+            if not output_dir:
+                # 默认：当前工作目录的 tests 子目录
+                cwd = Path(os.getcwd())
+                output_dir_path = cwd / "tests"
+            else:
+                output_dir_path = Path(output_dir)
+            
+            output_dir_path.mkdir(parents=True, exist_ok=True)
             
             # 确保传入字符串路径
             output_dir_str = str(output_dir_path.resolve())
-            generator = TestGeneratorFromHistory(output_dir=output_dir_str)
+            generator = StandaloneTestGenerator(output_dir=output_dir_str)
             
             # 从client获取操作历史，只保留成功的操作
             operation_history = getattr(self.client, 'operation_history', [])
@@ -1181,11 +1193,18 @@ AI平台: {platform_name}
                     }, ensure_ascii=False, indent=2)
                 )]
             
+            # 🎯 获取当前使用的设备ID（重要！多设备时必须指定）
+            device_id = getattr(self.client, 'device_id', None)
+            if not device_id and hasattr(self.client, 'u2'):
+                # 尝试从 u2 对象获取
+                device_id = getattr(self.client.u2, 'serial', None)
+            
             # 生成脚本
             script = generator.generate_from_history(
                 test_name=test_name,
                 package_name=package_name,
-                operation_history=successful_operations
+                operation_history=successful_operations,
+                device_id=device_id  # 传递设备ID
             )
             
             # 保存脚本
@@ -1197,9 +1216,10 @@ AI平台: {platform_name}
                     "success": True,
                     "test_name": test_name,
                     "script_path": str(script_path),
+                    "output_dir": str(output_dir_path),
                     "operation_count": len(successful_operations),
                     "format": "pytest",
-                    "message": f"pytest格式测试脚本已生成: {script_path}",
+                    "message": f"✅ 测试脚本已生成到用户项目: {script_path}",
                     "usage": {
                         "run_test": f"pytest {script_path.name} -v",
                         "with_allure": f"pytest {script_path.name} --alluredir=./allure-results",

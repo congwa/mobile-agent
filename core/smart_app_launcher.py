@@ -45,7 +45,7 @@ class SmartAppLauncher:
     async def launch_with_smart_wait(
         self, 
         package_name: str, 
-        max_wait: int = 10,
+        max_wait: int = 5,  # 优化：从10秒减少到5秒
         auto_close_ads: bool = True
     ) -> Dict:
         """
@@ -53,7 +53,7 @@ class SmartAppLauncher:
         
         Args:
             package_name: App包名
-            max_wait: 最大等待时间（秒）
+            max_wait: 最大等待时间（秒，默认5秒）
             auto_close_ads: 是否自动关闭广告/弹窗
             
         Returns:
@@ -114,7 +114,7 @@ class SmartAppLauncher:
     async def _wait_for_home_page(
         self, 
         package_name: str, 
-        max_wait: int = 10,
+        max_wait: int = 5,  # 优化：从10秒减少到5秒
         auto_close_ads: bool = True
     ) -> Dict:
         """
@@ -144,8 +144,11 @@ class SmartAppLauncher:
         
         print(f"  ⏳ 等待主页加载（最多{max_wait}秒）...", file=sys.stderr)
         
-        for i in range(max_wait * 2):  # 每0.5秒检查一次
-            await asyncio.sleep(0.5)
+        check_interval = 0.3  # 优化：每0.3秒检查一次（更快响应）
+        max_checks = int(max_wait / check_interval)
+        
+        for i in range(max_checks):
+            await asyncio.sleep(check_interval)
             elapsed = time.time() - start_time
             
             # 检查当前包名（防止跳转到其他App）
@@ -186,8 +189,8 @@ class SmartAppLauncher:
                 
                 last_snapshot = snapshot
                 
-                # 每2秒打印一次等待进度
-                if i % 4 == 0 and i > 0:
+                # 优化：每1.5秒打印一次等待进度（从2秒减少）
+                if i % 5 == 0 and i > 0:  # 5 * 0.3秒 = 1.5秒
                     print(f"  ⏳ 等待中... ({elapsed:.1f}秒)", file=sys.stderr)
             
             except Exception as e:

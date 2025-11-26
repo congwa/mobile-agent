@@ -91,9 +91,28 @@ class AIPlatformAdapter:
         except:
             pass
         
-        # 方法3: 检查是否有Cursor特定的功能请求
-        # 这个在运行时动态检测
+        # 方法3: 🎯 在 MCP Server 环境中默认启用 Cursor AI
+        # 如果没有配置其他 AI 平台，且在 MCP 环境中，默认使用 Cursor
+        if self._is_running_in_mcp() and not self._has_other_ai_platform():
+            return True
+        
         return False
+    
+    def _is_running_in_mcp(self) -> bool:
+        """检测是否在 MCP Server 环境中运行"""
+        # 检查是否通过 MCP 协议运行（stdin/stdout）
+        import sys
+        return not sys.stdin.isatty() or os.getenv("MCP_MODE") == "1"
+    
+    def _has_other_ai_platform(self) -> bool:
+        """检测是否配置了其他 AI 平台"""
+        return bool(
+            os.getenv("AI_PROVIDER") or
+            os.getenv("ANTHROPIC_API_KEY") or
+            os.getenv("OPENAI_API_KEY") or
+            os.getenv("GOOGLE_API_KEY") or
+            os.getenv("QWEN_API_KEY")
+        )
     
     def _initialize_platform(self):
         """初始化检测到的平台"""

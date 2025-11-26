@@ -522,45 +522,51 @@ class MobileSmartLocator:
         
         print(f"  📋 Level 3: XML深度分析...", file=sys.stderr)
         
-        # 打印XML结构（调试用）
-        print(f"  📄 XML结构预览（共{len(elements)}个元素）:", file=sys.stderr)
-        print(f"  {'─' * 60}", file=sys.stderr)
+        # 🎯 优化：只在调试模式下打印XML结构预览
+        # 通过环境变量 MOBILE_MCP_DEBUG=1 开启
+        import os
+        debug_mode = os.getenv('MOBILE_MCP_DEBUG', '0') == '1'
         
-        # 只打印前20个有意义的元素（避免输出过多）
-        meaningful_elements = [
-            e for e in elements 
-            if e.get('text') or e.get('content_desc') or e.get('resource_id') or e.get('clickable')
-        ][:20]
-        
-        for i, elem in enumerate(meaningful_elements, 1):
-            text = elem.get('text', '')
-            desc = elem.get('content_desc', '')
-            resource_id = elem.get('resource_id', '')
-            class_name = elem.get('class_name', '')
-            clickable = elem.get('clickable', False)
-            focusable = elem.get('focusable', False)
+        if debug_mode:
+            # 打印XML结构（调试用）
+            print(f"  📄 XML结构预览（共{len(elements)}个元素）:", file=sys.stderr)
+            print(f"  {'─' * 60}", file=sys.stderr)
             
-            # 格式化输出
-            parts = []
-            if text:
-                parts.append(f"text='{text[:30]}'")
-            if desc:
-                desc_clean = desc.split('\n')[0][:30]
-                parts.append(f"desc='{desc_clean}'")
-            if resource_id:
-                parts.append(f"id='{resource_id[:30]}'")
-            if class_name:
-                parts.append(f"class={class_name}")
-            if clickable:
-                parts.append("[clickable]")
-            if focusable:
-                parts.append("[focusable]")
+            # 只打印前20个有意义的元素（避免输出过多）
+            meaningful_elements = [
+                e for e in elements 
+                if e.get('text') or e.get('content_desc') or e.get('resource_id') or e.get('clickable')
+            ][:20]
             
-            print(f"  {i:2d}. {' | '.join(parts) if parts else 'empty element'}", file=sys.stderr)
-        
-        if len(meaningful_elements) < len([e for e in elements if e.get('text') or e.get('content_desc')]):
-            print(f"  ... (还有更多元素，共{len(elements)}个)", file=sys.stderr)
-        print(f"  {'─' * 60}", file=sys.stderr)
+            for i, elem in enumerate(meaningful_elements, 1):
+                text = elem.get('text', '')
+                desc = elem.get('content_desc', '')
+                resource_id = elem.get('resource_id', '')
+                class_name = elem.get('class_name', '')
+                clickable = elem.get('clickable', False)
+                focusable = elem.get('focusable', False)
+                
+                # 格式化输出
+                parts = []
+                if text:
+                    parts.append(f"text='{text[:30]}'")
+                if desc:
+                    desc_clean = desc.split('\n')[0][:30]
+                    parts.append(f"desc='{desc_clean}'")
+                if resource_id:
+                    parts.append(f"id='{resource_id[:30]}'")
+                if class_name:
+                    parts.append(f"class={class_name}")
+                if clickable:
+                    parts.append("[clickable]")
+                if focusable:
+                    parts.append("[focusable]")
+                
+                print(f"  {i:2d}. {' | '.join(parts) if parts else 'empty element'}", file=sys.stderr)
+            
+            if len(meaningful_elements) < len([e for e in elements if e.get('text') or e.get('content_desc')]):
+                print(f"  ... (还有更多元素，共{len(elements)}个)", file=sys.stderr)
+            print(f"  {'─' * 60}", file=sys.stderr)
         
         # 文本匹配
         query_lower = query.lower().strip()
@@ -1492,10 +1498,15 @@ class MobileSmartLocator:
         
         print(f"  🔄 转换AI结果: ref='{ref}', element='{element}', query='{query}'", file=sys.stderr)
         
-        # 如果ref是CSS选择器或HTML标签格式，需要重新定位
+        # 🎯 优化：检测 XPath 格式（AI 常返回这种格式）
+        is_xpath = ref.startswith('//') or ref.startswith('//*[@')
+        if is_xpath:
+            print(f"  ⚠️  检测到XPath格式，需要重新定位: {ref}", file=sys.stderr)
+        
+        # 如果ref是CSS选择器、HTML标签或XPath格式，需要重新定位
         # 这种情况下，使用query或element文本重新在XML中查找
         html_tags = ['input', 'button', 'textbox', 'submit', 'textarea', 'select', 'a', 'div', 'span']
-        if '.' in ref or '#' in ref or ref.startswith('button') or ref.startswith('textbox') or ref.lower() in html_tags:
+        if is_xpath or '.' in ref or '#' in ref or ref.startswith('button') or ref.startswith('textbox') or ref.lower() in html_tags:
             print(f"  🔍 检测到HTML标签/CSS选择器，重新定位...", file=sys.stderr)
             # CSS选择器格式，需要重新定位
             # 使用query或element文本在XML中查找
