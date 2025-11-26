@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.1.0",  # 重大改进：所有操作支持智能验证，彻底解决"假成功"问题
+    version="2.1.2",  # 修复：屏幕方向锁定 + 改进自动关闭广告逻辑
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
