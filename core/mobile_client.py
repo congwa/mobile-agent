@@ -15,11 +15,13 @@
     await client.click("登录按钮")
 """
 import asyncio
+import sys
 from typing import Dict, Optional, List
 
 from .device_manager import DeviceManager
 from ..utils.xml_parser import XMLParser
 from ..utils.xml_formatter import XMLFormatter
+from .utils.smart_wait import SmartWait
 
 
 class MobileClient:
@@ -47,6 +49,9 @@ class MobileClient:
             self.device_manager = DeviceManager(platform="android")
             self.u2 = self.device_manager.connect(device_id)
             self.driver = None  # iOS使用
+            
+            # 初始化智能等待工具
+            self.smart_wait = SmartWait(self)
         elif platform == "ios":
             from .ios_device_manager import IOSDeviceManager
             self.device_manager = IOSDeviceManager()
@@ -104,11 +109,11 @@ class MobileClient:
             )
             
             if result.returncode == 0:
-                print(f"  🔒 已锁定屏幕方向为竖屏")
+                print(f"  🔒 已锁定屏幕方向为竖屏", file=sys.stderr)
             else:
-                print(f"  ⚠️  锁定屏幕方向失败（可能设备不支持）")
+                print(f"  ⚠️  锁定屏幕方向失败（可能设备不支持）", file=sys.stderr)
         except Exception as e:
-            print(f"  ⚠️  锁定屏幕方向失败: {e}（可能设备不支持）")
+            print(f"  ⚠️  锁定屏幕方向失败: {e}（可能设备不支持）", file=sys.stderr)
     
     def force_portrait(self):
         """强制旋转回竖屏（如果当前是横屏）"""
@@ -125,9 +130,9 @@ class MobileClient:
             
             import time
             time.sleep(0.5)
-            print(f"  🔄 已强制旋转回竖屏")
+            print(f"  🔄 已强制旋转回竖屏", file=sys.stderr)
         except Exception as e:
-            print(f"  ⚠️  强制旋转失败: {e}")
+            print(f"  ⚠️  强制旋转失败: {e}", file=sys.stderr)
     
     def unlock_screen_orientation(self):
         """解锁屏幕方向（允许自动旋转）"""
@@ -143,11 +148,11 @@ class MobileClient:
             )
             
             if result.returncode == 0:
-                print(f"  🔓 已解锁屏幕方向（允许自动旋转）")
+                print(f"  🔓 已解锁屏幕方向（允许自动旋转）", file=sys.stderr)
             else:
-                print(f"  ⚠️  解锁屏幕方向失败")
+                print(f"  ⚠️  解锁屏幕方向失败", file=sys.stderr)
         except Exception as e:
-            print(f"  ⚠️  解锁屏幕方向失败: {e}")
+            print(f"  ⚠️  解锁屏幕方向失败: {e}", file=sys.stderr)
     
     async def snapshot(self, use_cache: bool = True) -> str:
         """
@@ -229,8 +234,8 @@ class MobileClient:
                 # Cursor AI视觉识别返回的截图路径
                 # 格式: cursor_vision_/path/to/screenshot.png
                 screenshot_path = ref.replace('cursor_vision_', '')
-                print(f"  ⚠️  检测到Cursor视觉识别标记，但坐标尚未提供")
-                print(f"  💡 请使用 mobile_analyze_screenshot 工具分析截图: {screenshot_path}")
+                print(f"  ⚠️  检测到Cursor视觉识别标记，但坐标尚未提供", file=sys.stderr)
+                print(f"  💡 请使用 mobile_analyze_screenshot 工具分析截图: {screenshot_path}", file=sys.stderr)
                 raise ValueError(f"需要先使用Cursor AI分析截图获取坐标: {screenshot_path}")
             elif ref.startswith('vision_coord_'):
                 # 视觉识别返回的坐标点
@@ -246,21 +251,21 @@ class MobileClient:
                     elem = self.u2(resourceId=ref)
                     if elem.exists(timeout=2):
                         elem.click()
-                        print(f"  ✅ resource-id点击成功: {ref}")
+                        print(f"  ✅ resource-id点击成功: {ref}", file=sys.stderr)
                     else:
                         raise ValueError(f"元素不存在: {ref}")
                 except Exception as e:
-                    print(f"  ❌ resource-id点击失败: {e}")
+                    print(f"  ❌ resource-id点击失败: {e}", file=sys.stderr)
                     raise ValueError(f"resource-id点击失败: {ref}, 错误: {e}")
             elif ref.startswith('[') and '][' in ref:
                 # bounds坐标定位 "[x1,y1][x2,y2]"
                 try:
                     x, y = self._parse_bounds_coords(ref)
-                    print(f"  📍 使用bounds坐标点击: {ref} -> ({x}, {y})")
+                    print(f"  📍 使用bounds坐标点击: {ref} -> ({x}, {y})", file=sys.stderr)
                     self.u2.click(x, y)
-                    print(f"  ✅ bounds坐标点击成功: ({x}, {y})")
+                    print(f"  ✅ bounds坐标点击成功: ({x}, {y})", file=sys.stderr)
                 except Exception as e:
-                    print(f"  ❌ bounds坐标点击失败: {e}")
+                    print(f"  ❌ bounds坐标点击失败: {e}", file=sys.stderr)
                     raise ValueError(f"bounds坐标点击失败: {ref}, 错误: {e}")
             else:
                 # ⚡ 优化：同时检查text和description，支持弹窗/对话框场景
@@ -273,17 +278,17 @@ class MobileClient:
                     # text元素存在，直接点击
                     try:
                         text_elem.click()
-                        print(f"  ✅ text点击成功: {ref}")
+                        print(f"  ✅ text点击成功: {ref}", file=sys.stderr)
                     except Exception as e:
-                        print(f"  ❌ text点击失败: {e}")
+                        print(f"  ❌ text点击失败: {e}", file=sys.stderr)
                         raise ValueError(f"text点击失败: {ref}, 错误: {e}")
                 elif desc_elem.exists(timeout=0.5):
                     # description元素存在，直接点击
                     try:
                         desc_elem.click()
-                        print(f"  ✅ description点击成功: {ref}")
+                        print(f"  ✅ description点击成功: {ref}", file=sys.stderr)
                     except Exception as e:
-                        print(f"  ❌ description点击失败: {e}")
+                        print(f"  ❌ description点击失败: {e}", file=sys.stderr)
                         raise ValueError(f"description点击失败: {ref}, 错误: {e}")
                 else:
                     # 都不存在，尝试包含匹配
@@ -291,9 +296,9 @@ class MobileClient:
                     if desc_contains_elem.exists(timeout=0.5):
                         try:
                             desc_contains_elem.click()
-                            print(f"  ✅ descriptionContains点击成功: {ref}")
+                            print(f"  ✅ descriptionContains点击成功: {ref}", file=sys.stderr)
                         except Exception as e:
-                            print(f"  ❌ descriptionContains点击失败: {e}")
+                            print(f"  ❌ descriptionContains点击失败: {e}", file=sys.stderr)
                             raise ValueError(f"descriptionContains点击失败: {ref}, 错误: {e}")
                     else:
                         # 🎯 改进：尝试模糊匹配（忽略空格、括号）
@@ -314,7 +319,7 @@ class MobileClient:
                                 if bounds:
                                     x, y = self._parse_bounds_coords(bounds)
                                     self.u2.click(x, y)
-                                    print(f"  ✅ 模糊匹配成功，点击坐标: ({x}, {y})")
+                                    print(f"  ✅ 模糊匹配成功，点击坐标: ({x}, {y})", file=sys.stderr)
                                     # 🎯 修复：找到匹配后直接返回，避免继续执行后面的代码
                                     return {"success": True, "ref": ref}
                         else:
@@ -323,15 +328,15 @@ class MobileClient:
                             if text_contains_elem.exists(timeout=0.5):
                                 try:
                                     text_contains_elem.click()
-                                    print(f"  ✅ textContains点击成功: {ref}")
+                                    print(f"  ✅ textContains点击成功: {ref}", file=sys.stderr)
                                     return {"success": True, "ref": ref}
                                 except Exception as e:
-                                    print(f"  ❌ textContains点击失败: {e}")
+                                    print(f"  ❌ textContains点击失败: {e}", file=sys.stderr)
                                     raise ValueError(f"textContains点击失败: {ref}, 错误: {e}")
                             else:
                                 # 🎯 弹窗场景：如果元素不存在，等待更长时间（可能弹窗还没出现）
                                 # 重试机制：等待弹窗出现（最多等待3秒）
-                                print(f"  ⚠️  元素'{ref}'未找到，等待弹窗/对话框出现...")
+                                print(f"  ⚠️  元素'{ref}'未找到，等待弹窗/对话框出现...", file=sys.stderr)
                                 found = False
                                 for attempt in range(6):  # 6次尝试，每次0.5秒，总共3秒
                                     await asyncio.sleep(0.5)
@@ -339,27 +344,27 @@ class MobileClient:
                                     if text_elem.exists(timeout=0.1):
                                         text_elem.click()
                                         found = True
-                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）")
+                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）", file=sys.stderr)
                                         break
                                     elif desc_elem.exists(timeout=0.1):
                                         desc_elem.click()
                                         found = True
-                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）")
+                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）", file=sys.stderr)
                                         break
                                     elif desc_contains_elem.exists(timeout=0.1):
                                         desc_contains_elem.click()
                                         found = True
-                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）")
+                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）", file=sys.stderr)
                                         break
                                     elif text_contains_elem.exists(timeout=0.1):
                                         text_contains_elem.click()
                                         found = True
-                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）")
+                                        print(f"  ✅ 弹窗出现，点击成功（等待{attempt * 0.5 + 0.5}秒）", file=sys.stderr)
                                         break
                                 
                                 if not found:
                                     # 🎯 定位失败，自动使用Cursor AI视觉识别（截图分析）
-                                    print(f"  ⚠️  元素'{ref}'未找到，自动使用Cursor AI视觉识别（截图分析）...")
+                                    print(f"  ⚠️  元素'{ref}'未找到，自动使用Cursor AI视觉识别（截图分析）...", file=sys.stderr)
                                     try:
                                         from .locator.cursor_vision_helper import CursorVisionHelper
                                         cursor_helper = CursorVisionHelper(self)
@@ -372,7 +377,7 @@ class MobileClient:
                                             if coord and 'x' in coord and 'y' in coord:
                                                 x, y = coord['x'], coord['y']
                                                 self.u2.click(x, y)
-                                                print(f"  ✅ Cursor AI视觉识别成功，点击坐标: ({x}, {y})")
+                                                print(f"  ✅ Cursor AI视觉识别成功，点击坐标: ({x}, {y})", file=sys.stderr)
                                                 
                                                 # 🎯 更新操作历史：记录视觉识别坐标
                                                 vision_ref = f"vision_coord_{x}_{y}"
@@ -387,7 +392,7 @@ class MobileClient:
                                         elif cursor_result and cursor_result.get('status') == 'timeout':
                                             # ⏸️ 超时，提示用户手动分析
                                             screenshot_path = cursor_result.get('screenshot_path')
-                                            print(f"  ⏸️  等待超时，请手动分析截图: {screenshot_path}")
+                                            print(f"  ⏸️  等待超时，请手动分析截图: {screenshot_path}", file=sys.stderr)
                                             raise ValueError(f"Cursor AI分析超时，请手动分析截图: {screenshot_path}")
                                         else:
                                             # 其他情况，抛出异常
@@ -396,13 +401,14 @@ class MobileClient:
                                     except ValueError as ve:
                                         if "Cursor AI" in str(ve):
                                             raise ve
-                                        print(f"  ⚠️  Cursor视觉识别失败: {ve}")
+                                        print(f"  ⚠️  Cursor视觉识别失败: {ve}", file=sys.stderr)
                                     
                                     raise ValueError(f"无法找到元素: {ref}（已等待3秒，并尝试Cursor视觉识别，可能元素不存在）")
             
             # 验证点击（可选）
             if verify:
-                await asyncio.sleep(0.5)  # 等待页面响应
+                # 使用智能等待，检测页面变化
+                await self.smart_wait.wait_after_action("点击", quick=False)
             
             # 🎯 更新操作历史：记录实际使用的ref和成功状态
             if self.operation_history:
@@ -476,11 +482,11 @@ class MobileClient:
                     elem = self.u2(resourceId=ref)
                     if elem.exists(timeout=2):
                         elem.set_text(text)
-                        print(f"  ✅ resource-id输入成功: {ref}")
+                        print(f"  ✅ resource-id输入成功: {ref}", file=sys.stderr)
                     else:
                         raise ValueError(f"输入框不存在: {ref}")
                 except Exception as e:
-                    print(f"  ❌ resource-id输入失败: {e}")
+                    print(f"  ❌ resource-id输入失败: {e}", file=sys.stderr)
                     raise ValueError(f"resource-id输入失败: {ref}, 错误: {e}")
             elif ref.startswith('[') and '][' in ref:
                 # bounds坐标定位 "[x1,y1][x2,y2]"
@@ -495,17 +501,17 @@ class MobileClient:
                         textbox = self.u2(className='android.widget.EditText')
                         if textbox.exists(timeout=1):
                             textbox.set_text(text)
-                            print(f"  ✅ bounds坐标输入成功（使用textbox.set_text）: ({x}, {y})")
+                            print(f"  ✅ bounds坐标输入成功（使用textbox.set_text）: ({x}, {y})", file=sys.stderr)
                         else:
                             # 如果没有找到textbox，使用send_keys
                             self.u2.send_keys(text)
-                            print(f"  ✅ bounds坐标输入成功（使用send_keys）: ({x}, {y})")
+                            print(f"  ✅ bounds坐标输入成功（使用send_keys）: ({x}, {y})", file=sys.stderr)
                     except Exception:
                         # 如果set_text失败，使用send_keys
                         self.u2.send_keys(text)
-                        print(f"  ✅ bounds坐标输入成功（使用send_keys）: ({x}, {y})")
+                        print(f"  ✅ bounds坐标输入成功（使用send_keys）: ({x}, {y})", file=sys.stderr)
                 except Exception as e:
-                    print(f"  ❌ bounds坐标输入失败: {e}")
+                    print(f"  ❌ bounds坐标输入失败: {e}", file=sys.stderr)
                     raise ValueError(f"bounds坐标输入失败: {ref}, 错误: {e}")
             elif '[' in ref and ']' in ref and not ref.startswith('['):
                 # class_name[index]格式，使用索引定位
@@ -522,13 +528,13 @@ class MobileClient:
                             elements[index].click()
                             await asyncio.sleep(0.2)
                             self.u2.send_keys(text)
-                            print(f"  ✅ class_name[index]输入成功: {class_name}[{index}]")
+                            print(f"  ✅ class_name[index]输入成功: {class_name}[{index}]", file=sys.stderr)
                         else:
                             raise ValueError(f"无法找到{class_name}[{index}]（共找到{len(elements) if elements else 0}个元素）")
                     else:
                         raise ValueError(f"无效的ref格式: {ref}")
                 except Exception as e:
-                    print(f"  ❌ class_name[index]输入失败: {e}")
+                    print(f"  ❌ class_name[index]输入失败: {e}", file=sys.stderr)
                     raise ValueError(f"class_name[index]输入失败: {ref}, 错误: {e}")
             else:
                 # text定位
@@ -536,11 +542,11 @@ class MobileClient:
                     elem = self.u2(text=ref)
                     if elem.exists(timeout=2):
                         elem.set_text(text)
-                        print(f"  ✅ text输入成功: {ref}")
+                        print(f"  ✅ text输入成功: {ref}", file=sys.stderr)
                     else:
                         raise ValueError(f"输入框不存在: {ref}")
                 except Exception as e:
-                    print(f"  ❌ text输入失败: {e}")
+                    print(f"  ❌ text输入失败: {e}", file=sys.stderr)
                     raise ValueError(f"text输入失败: {ref}, 错误: {e}")
             
             # 🎯 更新操作历史：记录实际使用的ref和成功状态
@@ -553,21 +559,21 @@ class MobileClient:
             
             # 🎯 特殊处理：如果是搜索框，输入后自动按搜索键
             if '搜索' in element.lower() or 'search' in element.lower():
-                print(f"  🔍 检测到搜索框，输入后按搜索键...")
+                print(f"  🔍 检测到搜索框，输入后按搜索键...", file=sys.stderr)
                 await asyncio.sleep(0.3)  # 等待输入完成
                 try:
                     # 尝试按搜索键（KEYCODE_SEARCH = 84）
                     self.u2.press_keycode(84)
-                    print(f"  ✅ 已按搜索键")
+                    print(f"  ✅ 已按搜索键", file=sys.stderr)
                     await asyncio.sleep(0.5)
                 except Exception as e:
                     # 如果KEYCODE_SEARCH不支持，尝试按Enter键
                     try:
                         self.u2.press("enter")
-                        print(f"  ✅ 已按Enter键（搜索键不可用）")
+                        print(f"  ✅ 已按Enter键（搜索键不可用）", file=sys.stderr)
                         await asyncio.sleep(0.5)
                     except Exception as e2:
-                        print(f"  ⚠️  无法按搜索键: {e2}")
+                        print(f"  ⚠️  无法按搜索键: {e2}", file=sys.stderr)
             
             return {"success": True, "ref": ref}
             
@@ -614,28 +620,40 @@ class MobileClient:
         x1, y1, x2, y2 = direction_map[direction]
         
         try:
-            print(f"  📍 滑动方向: {direction}, 坐标: ({x1}, {y1}) -> ({x2}, {y2})")
+            print(f"  📍 滑动方向: {direction}, 坐标: ({x1}, {y1}) -> ({x2}, {y2})", file=sys.stderr)
             self.u2.swipe(x1, y1, x2, y2, duration=0.5)
-            print(f"  ✅ 滑动成功: {direction}")
+            print(f"  ✅ 滑动成功: {direction}", file=sys.stderr)
             return {"success": True}
         except Exception as e:
-            print(f"  ❌ 滑动失败: {e}")
+            print(f"  ❌ 滑动失败: {e}", file=sys.stderr)
             return {"success": False, "reason": str(e)}
     
-    async def launch_app(self, package_name: str, wait_time: int = 3):
+    async def launch_app(self, package_name: str, wait_time: int = 3, smart_wait: bool = True):
         """
         启动App
         
         Args:
             package_name: App包名（如 "com.example.app"）
-            wait_time: 等待App启动的时间（秒）
+            wait_time: 等待App启动的时间（秒）- 仅在smart_wait=False时使用
+            smart_wait: 是否启用智能等待（自动关闭广告、等待主页加载）
             
         Returns:
             操作结果
         """
         try:
-            # 启动App
-            print(f"  📱 启动App: {package_name}")
+            # 🎯 优先使用智能启动（推荐）
+            if smart_wait:
+                from .smart_app_launcher import SmartAppLauncher
+                launcher = SmartAppLauncher(self)
+                result = await launcher.launch_with_smart_wait(
+                    package_name,
+                    max_wait=max(10, wait_time),  # 至少等待10秒
+                    auto_close_ads=True
+                )
+                return result
+            
+            # 传统方式（快速启动，不等待加载）
+            print(f"  📱 启动App: {package_name}", file=sys.stderr)
             self.u2.app_start(package_name)
             
             # 等待App启动，并验证是否成功
@@ -643,13 +661,13 @@ class MobileClient:
                 await asyncio.sleep(1)
                 current = await self.get_current_package()
                 if current == package_name:
-                    print(f"  ✅ App启动成功: {package_name}（等待{i+1}秒）")
+                    print(f"  ✅ App启动成功: {package_name}（等待{i+1}秒）", file=sys.stderr)
                     return {"success": True, "package": package_name}
             
             # 如果等待后仍未启动，检查App是否安装
             current = await self.get_current_package()
             if current != package_name:
-                print(f"  ⚠️  App可能未启动成功，当前App: {current}，期望: {package_name}")
+                print(f"  ⚠️  App可能未启动成功，当前App: {current}，期望: {package_name}", file=sys.stderr)
                 # 🎯 检查App是否安装
                 try:
                     app_info = self.u2.app_info(package_name)
@@ -664,7 +682,7 @@ class MobileClient:
             
             return {"success": True, "package": package_name}
         except Exception as e:
-            print(f"  ❌ App启动异常: {e}")
+            print(f"  ❌ App启动异常: {e}", file=sys.stderr)
             return {"success": False, "reason": str(e)}
     
     async def stop_app(self, package_name: str):
@@ -678,12 +696,12 @@ class MobileClient:
             操作结果
         """
         try:
-            print(f"  📱 停止App: {package_name}")
+            print(f"  📱 停止App: {package_name}", file=sys.stderr)
             self.u2.app_stop(package_name)
-            print(f"  ✅ App已停止: {package_name}")
+            print(f"  ✅ App已停止: {package_name}", file=sys.stderr)
             return {"success": True}
         except Exception as e:
-            print(f"  ❌ App停止失败: {e}")
+            print(f"  ❌ App停止失败: {e}", file=sys.stderr)
             return {"success": False, "reason": str(e)}
     
     async def get_current_package(self) -> Optional[str]:
@@ -734,7 +752,7 @@ class MobileClient:
                 # 尝试直接使用u2.press方法（支持字符串按键名）
                 try:
                     self.u2.press(key.lower())
-                    print(f"  ✅ 按键成功: {key}")
+                    print(f"  ✅ 按键成功: {key}", file=sys.stderr)
                     return {"success": True, "key": key}
                 except:
                     return {"success": False, "reason": f"不支持的按键: {key}"}
@@ -750,10 +768,10 @@ class MobileClient:
                                'shell', 'input', 'keyevent', str(keycode)], 
                                check=True, timeout=5)
             
-            print(f"  ✅ 按键成功: {key} (keycode={keycode})")
+            print(f"  ✅ 按键成功: {key} (keycode={keycode})", file=sys.stderr)
             return {"success": True, "key": key, "keycode": keycode}
         except Exception as e:
-            print(f"  ❌ 按键失败: {e}")
+            print(f"  ❌ 按键失败: {e}", file=sys.stderr)
             return {"success": False, "reason": str(e)}
     
     def _parse_bounds_coords(self, bounds_str: str) -> tuple:

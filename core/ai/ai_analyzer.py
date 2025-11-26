@@ -3,6 +3,7 @@
 """
 AI分析器 - 智能兜底，分析候选元素
 """
+import sys
 import json
 from typing import Dict, List, Optional
 from .ai_config import ai_config
@@ -28,11 +29,11 @@ class AIAnalyzer:
             最佳匹配的元素信息
         """
         if not self.config.is_configured():
-            print("  ⚠️  AI未配置，跳过AI分析")
+            print("  ⚠️  AI未配置，跳过AI分析", file=sys.stderr)
             return None
         
         if not candidates:
-            print("  ⚠️  没有候选元素，跳过AI分析")
+            print("  ⚠️  没有候选元素，跳过AI分析", file=sys.stderr)
             return None
         
         try:
@@ -41,7 +42,7 @@ class AIAnalyzer:
             # 构建提示词
             prompt = self._build_prompt(query, candidates, context)
             
-            print(f"  🤖 调用AI分析（模型: {self.config.model}）...")
+            print(f"  🤖 调用AI分析（模型: {self.config.model}）...", file=sys.stderr)
             
             # 调用通义千问API
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
@@ -69,8 +70,8 @@ class AIAnalyzer:
                 )
             
             if response.status_code != 200:
-                print(f"  ❌ AI调用失败: HTTP {response.status_code}")
-                print(f"     {response.text}")
+                print(f"  ❌ AI调用失败: HTTP {response.status_code}", file=sys.stderr)
+                print(f"     {response.text}", file=sys.stderr)
                 return None
             
             result = response.json()
@@ -80,23 +81,23 @@ class AIAnalyzer:
             ai_result = json.loads(ai_response)
             
             if not ai_result.get('selected_index'):
-                print(f"  ⚠️  AI未能选择元素")
+                print(f"  ⚠️  AI未能选择元素", file=sys.stderr)
                 return None
             
             selected_index = ai_result['selected_index'] - 1  # 转换为0-based索引
             
             if selected_index < 0 or selected_index >= len(candidates):
-                print(f"  ⚠️  AI返回的索引无效: {selected_index + 1}")
+                print(f"  ⚠️  AI返回的索引无效: {selected_index + 1}", file=sys.stderr)
                 return None
             
             selected = candidates[selected_index]
             confidence = ai_result.get('confidence', 85)
             reason = ai_result.get('reason', '未提供原因')
             
-            print(f"  ✅ AI选择: 候选{selected_index + 1}/{len(candidates)}")
-            print(f"     元素: {selected.get('text') or selected.get('content_desc') or selected.get('class_name')}")
-            print(f"     置信度: {confidence}%")
-            print(f"     理由: {reason}")
+            print(f"  ✅ AI选择: 候选{selected_index + 1}/{len(candidates)}", file=sys.stderr)
+            print(f"     元素: {selected.get('text') or selected.get('content_desc') or selected.get('class_name')}", file=sys.stderr)
+            print(f"     置信度: {confidence}%", file=sys.stderr)
+            print(f"     理由: {reason}", file=sys.stderr)
             
             return {
                 'element': selected.get('text') or selected.get('content_desc') or query,
@@ -107,7 +108,7 @@ class AIAnalyzer:
             }
             
         except Exception as e:
-            print(f"  ❌ AI分析异常: {e}")
+            print(f"  ❌ AI分析异常: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc()
             return None

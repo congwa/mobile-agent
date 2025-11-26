@@ -36,42 +36,31 @@ project_root = mobile_mcp_dir.parent.parent  # 项目根目录
 backend_dir = project_root / "backend"
 
 # 先导入MCP SDK（在添加本地路径之前，避免本地mcp目录冲突）
-# 使用importlib从site-packages显式导入，避免本地mcp目录干扰
-import importlib.util
-import site
+# 临时清理sys.path，确保导入的是安装的mcp包而不是本地mcp目录
+_original_sys_path = sys.path.copy()
+_mobile_mcp_dir_str = str(mobile_mcp_dir)
+_project_root_str = str(project_root)
+_backend_dir_str = str(backend_dir)
 
-mcp_types_spec = None
-for site_package in site.getsitepackages():
-    mcp_types_path = Path(site_package) / "mcp" / "types.py"
-    if mcp_types_path.exists():
-        mcp_types_spec = importlib.util.spec_from_file_location("mcp.types", mcp_types_path)
-        break
+# 只移除精确匹配的项目路径，保留所有其他路径（包括site-packages）
+sys.path = [
+    p for p in sys.path 
+    if p not in [_mobile_mcp_dir_str, _project_root_str, _backend_dir_str, '', '.']
+]
 
-if mcp_types_spec and mcp_types_spec.loader:
-    # 从site-packages加载mcp.types
-    mcp_types_module = importlib.util.module_from_spec(mcp_types_spec)
-    sys.modules['mcp.types'] = mcp_types_module
-    mcp_types_spec.loader.exec_module(mcp_types_module)
-    Tool = mcp_types_module.Tool
-    TextContent = mcp_types_module.TextContent
+try:
+    from mcp.types import Tool, TextContent
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
     MCP_AVAILABLE = True
-else:
-    # 回退到标准导入（如果importlib失败）
-    # 临时移除当前目录，确保导入的是安装的mcp包
-    current_dir = str(mobile_mcp_dir)
-    if current_dir in sys.path:
-        sys.path.remove(current_dir)
-    try:
-        from mcp.types import Tool, TextContent
-        MCP_AVAILABLE = True
-    except ImportError:
-        print("⚠️  MCP SDK 未安装，请运行: pip install mcp", file=sys.stderr)
-        MCP_AVAILABLE = False
-        sys.exit(1)
-    finally:
-        # 恢复路径
-        if current_dir not in sys.path:
-            sys.path.insert(0, current_dir)
+except ImportError as e:
+    print(f"⚠️  MCP SDK 未安装或导入失败: {e}", file=sys.stderr)
+    print("请运行: pip install mcp", file=sys.stderr)
+    MCP_AVAILABLE = False
+    sys.exit(1)
+finally:
+    # 恢复原始路径
+    sys.path = _original_sys_path
 
 # 现在添加本地路径（MCP SDK已导入，不会冲突）
 sys.path.insert(0, str(project_root))
@@ -1770,9 +1759,6 @@ AI平台: {platform_name}
 
 async def main():
     """MCP Server 主函数"""
-    from mcp.server import Server
-    from mcp.server.stdio import stdio_server
-    
     server_instance = MobileMCPServer()
     
     # 创建 MCP Server

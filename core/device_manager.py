@@ -9,6 +9,7 @@
 3. 检查设备状态
 4. 管理UIAutomator2服务
 """
+import sys
 import subprocess
 import os
 from typing import List, Optional, Dict
@@ -149,7 +150,7 @@ class DeviceManager:
             if len(devices) == 0:
                 raise RuntimeError("未找到连接的设备，请连接设备后重试")
             device_id = devices[0]['id']
-            print(f"📱 自动选择设备: {device_id}")
+            print(f"📱 自动选择设备: {device_id}", file=sys.stderr)
         
         # 连接设备
         try:
@@ -158,9 +159,9 @@ class DeviceManager:
             
             # 检查设备信息
             info = self.u2.info
-            print(f"✅ 设备连接成功: {device_id}")
-            print(f"   型号: {info.get('productName', 'Unknown')}")
-            print(f"   Android版本: {info.get('version', 'Unknown')}")
+            print(f"✅ 设备连接成功: {device_id}", file=sys.stderr)
+            print(f"   型号: {info.get('productName', 'Unknown')}", file=sys.stderr)
+            print(f"   Android版本: {info.get('version', 'Unknown')}", file=sys.stderr)
             
             # 检查无障碍服务状态
             self._check_accessibility_service()
@@ -209,15 +210,15 @@ class DeviceManager:
             # 尝试获取页面结构，如果失败可能是无障碍服务未启用
             xml = self.u2.dump_hierarchy()
             if xml and len(xml) > 100:  # 有内容说明无障碍服务正常
-                print(f"   ✅ 无障碍服务: 已启用")
+                print(f"   ✅ 无障碍服务: 已启用", file=sys.stderr)
                 return
             
-            print(f"   ⚠️  无障碍服务: 可能未启用")
-            print(f"   💡 提示: 如果定位失败，请检查是否启用了ATX的无障碍服务")
+            print(f"   ⚠️  无障碍服务: 可能未启用", file=sys.stderr)
+            print(f"   💡 提示: 如果定位失败，请检查是否启用了ATX的无障碍服务", file=sys.stderr)
             
         except Exception as e:
-            print(f"   ⚠️  无障碍服务检查失败: {e}")
-            print(f"   💡 提示: 请确保已安装ATX并启用了无障碍服务")
+            print(f"   ⚠️  无障碍服务检查失败: {e}", file=sys.stderr)
+            print(f"   💡 提示: 请确保已安装ATX并启用了无障碍服务", file=sys.stderr)
     
     def check_accessibility_service(self) -> Dict[str, any]:
         """
@@ -257,5 +258,5 @@ class DeviceManager:
         """断开设备连接"""
         self.u2 = None
         self.current_device_id = None
-        print("📱 设备已断开连接")
+        print("📱 设备已断开连接", file=sys.stderr)
 

@@ -9,8 +9,9 @@ iOS设备连接管理 - WebDriverAgent
 3. 检查设备状态
 4. 管理WebDriverAgent服务
 
-参考：https://github.com/mobile-next/mobile-mcp
+
 """
+import sys
 import subprocess
 import os
 import json
@@ -152,7 +153,7 @@ class IOSDeviceManager:
                 if len(devices) == 0:
                     raise RuntimeError("未找到连接的设备，请连接设备后重试")
                 device_id = devices[0]['id']
-                print(f"📱 自动选择设备: {device_id}")
+                print(f"📱 自动选择设备: {device_id}", file=sys.stderr)
             
             # 配置WebDriverAgent
             options = XCUITestOptions()
@@ -170,7 +171,7 @@ class IOSDeviceManager:
             )
             self.current_device_id = device_id
             
-            print(f"✅ iOS设备连接成功: {device_id}")
+            print(f"✅ iOS设备连接成功: {device_id}", file=sys.stderr)
             
             return self.driver
             
@@ -247,5 +248,5 @@ class IOSDeviceManager:
                 pass
         self.driver = None
         self.current_device_id = None
-        print("📱 iOS设备已断开连接")
+        print("📱 iOS设备已断开连接", file=sys.stderr)
 

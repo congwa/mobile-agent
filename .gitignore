@@ -16,7 +16,7 @@ dist/
 build/
 *.whl
 *.tar.gz
-setup.py
+# 注意: setup.py 需要提交！不要忽略
 
 # PyPI配置（包含敏感信息，不要提交）
 .pypirc

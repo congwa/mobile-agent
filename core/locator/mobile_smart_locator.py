@@ -32,7 +32,7 @@ try:
     SMART_LOCATOR_AVAILABLE = True
 except ImportError:
     SMART_LOCATOR_AVAILABLE = False
-    print("⚠️  无法导入SmartLocator，将使用简化版本")
+    print("⚠️  无法导入SmartLocator，将使用简化版本", file=sys.stderr)
 
 
 class MobileSmartLocator:
@@ -115,7 +115,7 @@ class MobileSmartLocator:
         
         self.stats['total'] += 1
         
-        print(f"\n🔍 MobileSmartLocator 定位: {query}")
+        print(f"\n🔍 MobileSmartLocator 定位: {query}", file=sys.stderr)
         
         # Level 1: 缓存查询（最快）
         cache_start = time.time()
@@ -126,34 +126,33 @@ class MobileSmartLocator:
             self.stats['cache_hits'] += 1
             elapsed_time = (time.time() - start_time) * 1000
             self.stats['total_time'] += elapsed_time
-            print(f"  ✅ 缓存命中！耗时: {elapsed_time:.2f}ms")
+            print(f"  ✅ 缓存命中！耗时: {elapsed_time:.2f}ms", file=sys.stderr)
             self._log_performance(query, 'cache', elapsed_time, 0)
             return cache_result
         
         # 🎯 弹窗场景：如果启用等待，先等待一段时间让弹窗出现
         if wait_for_popup:
             import asyncio
-            print(f"  ⏳ 等待弹窗/对话框出现（最多{max_wait}秒）...")
             await asyncio.sleep(0.5)  # 先等待0.5秒，让弹窗有时间出现
         
         # ⚡ 优化：一次定位只读一次XML（避免重复读取，节省400-1000ms）
-        print(f"  📱 读取页面XML...")
+        print(f"  📱 读取页面XML...", file=sys.stderr)
         
         # 分步计时：XML读取
         xml_read_start = time.time()
         xml_string = self.mobile_client.u2.dump_hierarchy()
         xml_read_time = (time.time() - xml_read_start) * 1000
-        print(f"     ⏱️  XML读取: {xml_read_time:.2f}ms")
+        print(f"     ⏱️  XML读取: {xml_read_time:.2f}ms", file=sys.stderr)
         
         # 分步计时：XML解析
         xml_parse_start = time.time()
         elements = self.mobile_client.xml_parser.parse(xml_string)
         xml_parse_time = (time.time() - xml_parse_start) * 1000
-        print(f"     ⏱️  XML解析: {xml_parse_time:.2f}ms (共{len(elements)}个元素)")
+        print(f"     ⏱️  XML解析: {xml_parse_time:.2f}ms (共{len(elements)}个元素)", file=sys.stderr)
         
         xml_time = xml_read_time + xml_parse_time
         self.stats['xml_read_count'] += 1
-        print(f"  ✅ XML处理完成，总耗时: {xml_time:.2f}ms (读取: {xml_read_time:.0f}ms + 解析: {xml_parse_time:.0f}ms)")
+        print(f"  ✅ XML处理完成，总耗时: {xml_time:.2f}ms (读取: {xml_read_time:.0f}ms + 解析: {xml_parse_time:.0f}ms)", file=sys.stderr)
         
         # Level 1.5: 快速预匹配（针对容易歧义的查询）
         # 例如："点击 输入邮箱" - 包含"输入"但不是输入操作，而是页签
@@ -162,7 +161,7 @@ class MobileSmartLocator:
             self.stats['quick_match_hits'] += 1
             elapsed_time = (time.time() - start_time) * 1000
             self.stats['total_time'] += elapsed_time
-            print(f"  ✅ 快速预匹配成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)")
+            print(f"  ✅ 快速预匹配成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)", file=sys.stderr)
             await self._cache_result(query, quick_result)
             self._log_performance(query, 'quick_match', elapsed_time, 1, xml_time)
             return quick_result
@@ -174,7 +173,7 @@ class MobileSmartLocator:
                 self.stats['rule_hits'] += 1
                 elapsed_time = (time.time() - start_time) * 1000
                 self.stats['total_time'] += elapsed_time
-                print(f"  ✅ 规则匹配成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)")
+                print(f"  ✅ 规则匹配成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)", file=sys.stderr)
                 await self._cache_result(query, rule_result)
                 self._log_performance(query, 'rule_match', elapsed_time, 1, xml_time)
                 return rule_result
@@ -185,7 +184,7 @@ class MobileSmartLocator:
             self.stats['xml_analysis'] += 1
             elapsed_time = (time.time() - start_time) * 1000
             self.stats['total_time'] += elapsed_time
-            print(f"  ✅ XML分析成功: {xml_result.get('element', '')} 总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)")
+            print(f"  ✅ XML分析成功: {xml_result.get('element', '')} 总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)", file=sys.stderr)
             await self._cache_result(query, xml_result)
             self._log_performance(query, 'xml_analysis', elapsed_time, 1, xml_time)
             return xml_result
@@ -196,7 +195,7 @@ class MobileSmartLocator:
             self.stats['position_analysis'] = self.stats.get('position_analysis', 0) + 1
             elapsed_time = (time.time() - start_time) * 1000
             self.stats['total_time'] += elapsed_time
-            print(f"  ✅ 位置分析成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)")
+            print(f"  ✅ 位置分析成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)", file=sys.stderr)
             await self._cache_result(query, position_result)
             self._log_performance(query, 'position_analysis', elapsed_time, 1, xml_time)
             return position_result
@@ -208,13 +207,13 @@ class MobileSmartLocator:
         # Level 3.6: AI智能兜底（分析候选元素）
         # 前提：有候选元素（说明XML中有相关元素，只是不确定选哪个）
         if candidates:
-            print(f"  📋 Level 3.6: AI智能兜底 (有{len(candidates)}个候选元素)...")
+            print(f"  📋 Level 3.6: AI智能兜底 (有{len(candidates)}个候选元素)...", file=sys.stderr)
             ai_result = await self._try_ai_candidates(query, candidates, elements)
             if ai_result:
                 self.stats['ai_calls'] += 1
                 elapsed_time = (time.time() - start_time) * 1000
                 self.stats['total_time'] += elapsed_time
-                print(f"  ✅ AI智能兜底成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)")
+                print(f"  ✅ AI智能兜底成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)", file=sys.stderr)
                 await self._cache_result(query, ai_result)
                 self._log_performance(query, 'ai_smart_fallback', elapsed_time, 1, xml_time)
                 return ai_result
@@ -222,41 +221,41 @@ class MobileSmartLocator:
         # 🎯 架构优化：弹窗场景优先使用视觉识别
         # 如果XML元素很少且没有候选，说明可能是弹窗/覆盖层，视觉识别更有效
         if is_popup_scenario:
-            print(f"  🎯 检测到弹窗场景（XML元素少: {len(elements)}个），优先使用视觉识别...")
+            print(f"  🎯 检测到弹窗场景（XML元素少: {len(elements)}个），优先使用视觉识别...", file=sys.stderr)
             vision_result = await self._try_vision(query)
             if vision_result:
                 self.stats['vision_calls'] += 1
                 elapsed_time = (time.time() - start_time) * 1000
                 self.stats['total_time'] += elapsed_time
-                print(f"  ✅ 视觉识别成功！总耗时: {elapsed_time:.2f}ms")
+                print(f"  ✅ 视觉识别成功！总耗时: {elapsed_time:.2f}ms", file=sys.stderr)
                 await self._cache_result(query, vision_result)
                 self._log_performance(query, 'vision', elapsed_time, 1, xml_time)
                 return vision_result
         
         # Level 4: 文本AI分析（需要AI配置）
         # 场景：XML中有元素但无法匹配（需要AI理解语义）
-        print(f"  ⚠️  XML分析失败，尝试AI分析...")
-        ai_result = await self._try_ai_analysis(query)
+        print(f"  ⚠️  XML分析失败，尝试AI分析...", file=sys.stderr)
+        ai_result = await self._try_ai_analysis(query, elements)
         if ai_result:
             self.stats['ai_calls'] += 1
             elapsed_time = (time.time() - start_time) * 1000
             self.stats['total_time'] += elapsed_time
-            print(f"  ✅ AI分析成功！总耗时: {elapsed_time:.2f}ms")
+            print(f"  ✅ AI分析成功！总耗时: {elapsed_time:.2f}ms", file=sys.stderr)
             await self._cache_result(query, ai_result)
-            self._log_performance(query, 'ai_analysis', elapsed_time, 2)  # AI可能读2次XML
+            self._log_performance(query, 'ai_analysis', elapsed_time, 1, xml_time)  # 传入已解析的elements，不重复读XML
             return ai_result
         
         # Level 5: 视觉识别（最后兜底，多模态）
         # 场景：所有方法都失败，视觉识别是最后手段
         vision_result = None
         if not is_popup_scenario:  # 如果之前已经尝试过视觉识别，不再重复
-            print(f"  ⚠️  AI分析也失败，尝试视觉识别（最后兜底）...")
+            print(f"  ⚠️  AI分析也失败，尝试视觉识别（最后兜底）...", file=sys.stderr)
             vision_result = await self._try_vision(query)
             if vision_result:
                 self.stats['vision_calls'] += 1
                 elapsed_time = (time.time() - start_time) * 1000
                 self.stats['total_time'] += elapsed_time
-                print(f"  ✅ 视觉识别成功！总耗时: {elapsed_time:.2f}ms")
+                print(f"  ✅ 视觉识别成功！总耗时: {elapsed_time:.2f}ms", file=sys.stderr)
                 await self._cache_result(query, vision_result)
                 self._log_performance(query, 'vision', elapsed_time, 1, xml_time)
                 return vision_result
@@ -268,12 +267,9 @@ class MobileSmartLocator:
         has_position_keyword = any(kw in query for kw in position_keywords)
         
         if has_position_keyword:
-            print(f"  ⚠️  查询包含位置信息，但位置分析失败，直接返回None（不等待Cursor AI）")
             elapsed_time = (time.time() - start_time) * 1000
-            print(f"  ❌ 所有定位方法都失败，总耗时: {elapsed_time:.2f}ms")
+            print(f"  ❌ 所有定位方法都失败（包含位置关键词，不使用Cursor AI），总耗时: {elapsed_time:.2f}ms", file=sys.stderr)
             return None
-        
-        print(f"  ⚠️  所有定位方法都失败（包括视觉识别），自动使用Cursor AI视觉识别（截图分析）...")
         try:
             from .cursor_vision_helper import CursorVisionHelper
             cursor_helper = CursorVisionHelper(self.mobile_client)
@@ -301,10 +297,7 @@ class MobileSmartLocator:
                 import json
                 json.dump(request_data, f, ensure_ascii=False, indent=2)
             
-            print(f"  📸 已截图: {screenshot_path}")
-            print(f"  📝 已创建分析请求: {request_file}")
-            print(f"  🎯 请Cursor AI分析截图，查找元素: {query}")
-            print(f"  💡 调用: mobile_analyze_screenshot request_id=\"{request_id}\"")
+            print(f"  📸 已截图并创建分析请求 (request_id: {request_id})", file=sys.stderr)
             
             # 🎯 返回特殊标记，让MCP服务器知道需要Cursor AI分析
             # 返回一个包含请求信息的字典，而不是None
@@ -318,12 +311,12 @@ class MobileSmartLocator:
                 'status': 'pending_analysis'
             }
         except Exception as e:
-            print(f"  ⚠️  Cursor视觉识别失败: {e}")
+            print(f"  ⚠️  Cursor视觉识别失败: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc()
         
         elapsed_time = (time.time() - start_time) * 1000
-        print(f"  ❌ 所有定位方法都失败（包括Cursor视觉识别），总耗时: {elapsed_time:.2f}ms")
+        print(f"  ❌ 所有定位方法都失败（包括Cursor视觉识别），总耗时: {elapsed_time:.2f}ms", file=sys.stderr)
         return None
     
     async def _try_cache(self, query: str) -> Optional[Dict]:
@@ -362,14 +355,14 @@ class MobileSmartLocator:
         # ⚡ 优化1: 同义词替换
         if "登陆" in query_lower:
             query_lower = query_lower.replace("登陆", "登录")
-            print(f"  ⚡ 同义词替换: '登陆' → '登录'")
+            print(f"  ⚡ 同义词替换: '登陆' → '登录'", file=sys.stderr)
         
         # ⚡ 优化2: resource-id快速匹配（如果query包含:id/或com.开头）
         if ":id/" in query or query.startswith("com."):
-            print(f"  ⚡ 检测到resource-id格式，直接匹配")
+            print(f"  ⚡ 检测到resource-id格式，直接匹配", file=sys.stderr)
             for elem in elements:
                 if elem.get('resource_id') == query:
-                    print(f"     ✅ resource-id完全匹配: {query}")
+                    print(f"     ✅ resource-id完全匹配: {query}", file=sys.stderr)
                     return {
                         'element': query,
                         'ref': query,
@@ -388,7 +381,7 @@ class MobileSmartLocator:
             removed_words.append("按钮")
         
         if removed_words:
-            print(f"  ⚡ 去除无意义词: {', '.join(removed_words)} → '{query_clean}'")
+            print(f"  ⚡ 去除无意义词: {', '.join(removed_words)} → '{query_clean}'", file=sys.stderr)
         
         # 判断是否可能被误判为输入操作
         has_input_keyword = "输入" in query_lower
@@ -398,13 +391,13 @@ class MobileSmartLocator:
         # 或者去除了无意义词后，都应该在clickable元素中优先查找
         if (has_input_keyword and is_not_input_box) or removed_words:
             if has_input_keyword and is_not_input_box:
-                print(f"  ⚡ 快速预匹配: 检测到'输入'但不是'输入框'，先查找clickable元素")
+                print(f"  ⚡ 快速预匹配: 检测到'输入'但不是'输入框'，先查找clickable元素", file=sys.stderr)
             
             # 在clickable元素中查找
             filter_start = time.time()
             clickable_elements = [e for e in elements if e.get('clickable', False)]
             filter_time = (time.time() - filter_start) * 1000
-            print(f"     ⏱️  预过滤: {filter_time:.2f}ms (从{len(elements)}个筛选到{len(clickable_elements)}个clickable)")
+            print(f"     ⏱️  预过滤: {filter_time:.2f}ms (从{len(elements)}个筛选到{len(clickable_elements)}个clickable)", file=sys.stderr)
             
             # ⚡ 优化4: 完全匹配优先（最重要！）
             match_start = time.time()
@@ -423,8 +416,8 @@ class MobileSmartLocator:
                     element_desc = content_desc_clean or text or query
                     
                     total_time = (time.time() - start_time) * 1000
-                    print(f"     ✅ 完全匹配(清理后): {element_desc}")
-                    print(f"     ⏱️  匹配耗时: {match_time:.2f}ms | 快速预匹配总耗时: {total_time:.2f}ms")
+                    print(f"     ✅ 完全匹配(清理后): {element_desc}", file=sys.stderr)
+                    print(f"     ⏱️  匹配耗时: {match_time:.2f}ms | 快速预匹配总耗时: {total_time:.2f}ms", file=sys.stderr)
                     
                     return {
                         'element': element_desc,
@@ -440,8 +433,8 @@ class MobileSmartLocator:
                     element_desc = content_desc_clean or text or query
                     
                     total_time = (time.time() - start_time) * 1000
-                    print(f"     ✅ 完全匹配(原始): {element_desc}")
-                    print(f"     ⏱️  匹配耗时: {match_time:.2f}ms | 快速预匹配总耗时: {total_time:.2f}ms")
+                    print(f"     ✅ 完全匹配(原始): {element_desc}", file=sys.stderr)
+                    print(f"     ⏱️  匹配耗时: {match_time:.2f}ms | 快速预匹配总耗时: {total_time:.2f}ms", file=sys.stderr)
                     
                     return {
                         'element': element_desc,
@@ -452,7 +445,7 @@ class MobileSmartLocator:
             
             # 完全匹配失败，再尝试包含匹配（降级）
             match_time = (time.time() - match_start) * 1000
-            print(f"     ⏱️  完全匹配遍历: {match_time:.2f}ms (未找到)")
+            print(f"     ⏱️  完全匹配遍历: {match_time:.2f}ms (未找到)", file=sys.stderr)
             
             contain_start = time.time()
             for elem in clickable_elements:
@@ -468,8 +461,8 @@ class MobileSmartLocator:
                     element_desc = content_desc_clean or text or query
                     
                     total_time = (time.time() - start_time) * 1000
-                    print(f"     ✅ 包含匹配: {element_desc}")
-                    print(f"     ⏱️  包含匹配耗时: {contain_time:.2f}ms | 快速预匹配总耗时: {total_time:.2f}ms")
+                    print(f"     ✅ 包含匹配: {element_desc}", file=sys.stderr)
+                    print(f"     ⏱️  包含匹配耗时: {contain_time:.2f}ms | 快速预匹配总耗时: {total_time:.2f}ms", file=sys.stderr)
                     
                     return {
                         'element': element_desc,
@@ -480,7 +473,7 @@ class MobileSmartLocator:
         
         total_time = (time.time() - start_time) * 1000
         if total_time > 5:  # 只有超过5ms才打印
-            print(f"     ⏱️  快速预匹配: {total_time:.2f}ms (未匹配)")
+            print(f"     ⏱️  快速预匹配: {total_time:.2f}ms (未匹配)", file=sys.stderr)
         return None
     
     async def _try_rule_match(self, elements: list, query: str) -> Optional[Dict]:
@@ -498,7 +491,7 @@ class MobileSmartLocator:
         query_processed = query
         if "登陆" in query:
             query_processed = query.replace("登陆", "登录")
-            print(f"  ⚡ 同义词替换（规则匹配）: '登陆' → '登录'")
+            print(f"  ⚡ 同义词替换（规则匹配）: '登陆' → '登录'", file=sys.stderr)
         
         # 定义AI函数（用于降级，但这里先不调用）
         async def ai_func(client, q: str):
@@ -527,11 +520,11 @@ class MobileSmartLocator:
         import time
         start_time = time.time()
         
-        print(f"  📋 Level 3: XML深度分析...")
+        print(f"  📋 Level 3: XML深度分析...", file=sys.stderr)
         
         # 打印XML结构（调试用）
-        print(f"  📄 XML结构预览（共{len(elements)}个元素）:")
-        print(f"  {'─' * 60}")
+        print(f"  📄 XML结构预览（共{len(elements)}个元素）:", file=sys.stderr)
+        print(f"  {'─' * 60}", file=sys.stderr)
         
         # 只打印前20个有意义的元素（避免输出过多）
         meaningful_elements = [
@@ -563,11 +556,11 @@ class MobileSmartLocator:
             if focusable:
                 parts.append("[focusable]")
             
-            print(f"  {i:2d}. {' | '.join(parts) if parts else 'empty element'}")
+            print(f"  {i:2d}. {' | '.join(parts) if parts else 'empty element'}", file=sys.stderr)
         
         if len(meaningful_elements) < len([e for e in elements if e.get('text') or e.get('content_desc')]):
-            print(f"  ... (还有更多元素，共{len(elements)}个)")
-        print(f"  {'─' * 60}")
+            print(f"  ... (还有更多元素，共{len(elements)}个)", file=sys.stderr)
+        print(f"  {'─' * 60}", file=sys.stderr)
         
         # 文本匹配
         query_lower = query.lower().strip()
@@ -575,7 +568,7 @@ class MobileSmartLocator:
         # ⚡ 同义词处理：登陆 -> 登录
         if "登陆" in query_lower:
             query_lower = query_lower.replace("登陆", "登录")
-            print(f"  ⚡ 同义词替换: '登陆' → '登录'")
+            print(f"  ⚡ 同义词替换: '登陆' → '登录'", file=sys.stderr)
         
         matched = []
         
@@ -606,14 +599,14 @@ class MobileSmartLocator:
             candidate_elements = [e for e in elements if e.get('class_name', '').lower() in ['edittext', 'textfield']]
             filter_time = (time.time() - filter_start) * 1000
             if len(candidate_elements) < len(elements):
-                print(f"  🎯 输入框查询优化: 从{len(elements)}个元素缩减到{len(candidate_elements)}个EditText (⏱️ {filter_time:.2f}ms)")
+                print(f"  🎯 输入框查询优化: 从{len(elements)}个元素缩减到{len(candidate_elements)}个EditText (⏱️ {filter_time:.2f}ms)", file=sys.stderr)
             
             # 特殊处理：如果查询输入框，直接匹配所有EditText（包括空的）
             # 这样可以匹配到空输入框，后续通过评分选择最佳
             match_start = time.time()  # 定义match_start
             matched = candidate_elements
             match_time = (time.time() - match_start) * 1000
-            print(f"  ✅ 找到 {len(matched)} 个EditText元素（包括空输入框） (⏱️ {match_time:.2f}ms)")
+            print(f"  ✅ 找到 {len(matched)} 个EditText元素（包括空输入框） (⏱️ {match_time:.2f}ms)", file=sys.stderr)
             
         elif is_icon_query:
             # 🎯 图标查询优化：优先从顶部区域筛选
@@ -659,9 +652,9 @@ class MobileSmartLocator:
             
             filter_time = (time.time() - filter_start) * 1000
             if "右上角" in query or "顶部" in query or "上角" in query:
-                print(f"  🎯 图标查询优化（顶部区域）: 从{len(elements)}个元素缩减到{len(candidate_elements)}个顶部图标元素 (⏱️ {filter_time:.2f}ms)")
+                print(f"  🎯 图标查询优化（顶部区域）: 从{len(elements)}个元素缩减到{len(candidate_elements)}个顶部图标元素 (⏱️ {filter_time:.2f}ms)", file=sys.stderr)
             else:
-                print(f"  🎯 图标查询优化: 从{len(elements)}个元素缩减到{len(candidate_elements)}个图标元素 (⏱️ {filter_time:.2f}ms)")
+                print(f"  🎯 图标查询优化: 从{len(elements)}个元素缩减到{len(candidate_elements)}个图标元素 (⏱️ {filter_time:.2f}ms)", file=sys.stderr)
             
             # 步骤2: 遍历候选元素进行文本匹配
             match_start = time.time()
@@ -703,13 +696,13 @@ class MobileSmartLocator:
                         # 根据查询中的位置关键词匹配
                         if ("右上角" in query or "上角" in query) and is_top_right:
                             matched.append(element)
-                            print(f"  ✅ 位置匹配（右上角）: bounds={bounds}, center=({center_x}, {center_y})")
+                            print(f"  ✅ 位置匹配（右上角）: bounds={bounds}, center=({center_x}, {center_y})", file=sys.stderr)
                         elif "顶部" in query and is_top:
                             matched.append(element)
-                            print(f"  ✅ 位置匹配（顶部）: bounds={bounds}, center=({center_x}, {center_y})")
+                            print(f"  ✅ 位置匹配（顶部）: bounds={bounds}, center=({center_x}, {center_y})", file=sys.stderr)
                         elif "右侧" in query or "右边" in query and is_right:
                             matched.append(element)
-                            print(f"  ✅ 位置匹配（右侧）: bounds={bounds}, center=({center_x}, {center_y})")
+                            print(f"  ✅ 位置匹配（右侧）: bounds={bounds}, center=({center_x}, {center_y})", file=sys.stderr)
                 
                 if text_matched:
                     matched.append(element)
@@ -720,10 +713,10 @@ class MobileSmartLocator:
             filter_time = (time.time() - filter_start) * 1000
             if len(clickable_elements) < len(elements):
                 candidate_elements = clickable_elements
-                print(f"  🎯 点击查询优化: 从{len(elements)}个元素缩减到{len(candidate_elements)}个可点击元素 (⏱️ {filter_time:.2f}ms)")
+                print(f"  🎯 点击查询优化: 从{len(elements)}个元素缩减到{len(candidate_elements)}个可点击元素 (⏱️ {filter_time:.2f}ms)", file=sys.stderr)
             else:
                 candidate_elements = elements
-                print(f"  ⏱️  预过滤: {filter_time:.2f}ms (无缩减)")
+                print(f"  ⏱️  预过滤: {filter_time:.2f}ms (无缩减)", file=sys.stderr)
             
             # 步骤2: 遍历候选元素进行文本匹配
             match_start = time.time()
@@ -770,8 +763,8 @@ class MobileSmartLocator:
         
         if matched:
             match_time = (time.time() - match_start) * 1000
-            print(f"  ✅ 找到 {len(matched)} 个匹配元素 (⏱️ 文本匹配: {match_time:.2f}ms)")
-            print(f"  {'─' * 60}")
+            print(f"  ✅ 找到 {len(matched)} 个匹配元素 (⏱️ 文本匹配: {match_time:.2f}ms)", file=sys.stderr)
+            print(f"  {'─' * 60}", file=sys.stderr)
             
             # 显示所有匹配元素（不限制数量，让用户看到完整情况）
             for i, elem in enumerate(matched, 1):
@@ -826,9 +819,9 @@ class MobileSmartLocator:
                     parts.append(f"bounds={bounds}")
                 
                 # 计算最终分数（在评分循环中会重新计算，这里只是显示）
-                print(f"    [{i:3d}] 分数={score:3d} | {' | '.join(parts) if parts else 'empty element'}")
+                print(f"    [{i:3d}] 分数={score:3d} | {' | '.join(parts) if parts else 'empty element'}", file=sys.stderr)
             
-            print(f"  {'─' * 60}")
+            print(f"  {'─' * 60}", file=sys.stderr)
             
             # 🎯 Phase 1优化：位置索引定位（仅针对输入框查询）
             # 如果是输入框查询，且所有匹配的元素都是EditText且没有任何标识
@@ -845,7 +838,7 @@ class MobileSmartLocator:
                 
                 if all_empty_edittext and len(matched) > 1:
                     # 所有输入框都没有标识，使用位置索引
-                    print(f"  🎯 检测到{len(matched)}个无标识EditText，使用位置索引定位")
+                    print(f"  🎯 检测到{len(matched)}个无标识EditText，使用位置索引定位", file=sys.stderr)
                     
                     # 按Y坐标排序
                     import re
@@ -862,25 +855,25 @@ class MobileSmartLocator:
                     if any(kw in query for kw in ['第一个', '第1个', '1个', '首个']):
                         target_elem = sorted_edittexts[0] if len(sorted_edittexts) > 0 else None
                         if target_elem:
-                            print(f"     → 关键词'第一个' → 第1个EditText (Y={get_y_coord(target_elem)})")
+                            print(f"     → 关键词'第一个' → 第1个EditText (Y={get_y_coord(target_elem)})", file=sys.stderr)
                     elif any(kw in query for kw in ['第二个', '第2个', '2个']):
                         target_elem = sorted_edittexts[1] if len(sorted_edittexts) > 1 else None
                         if target_elem:
-                            print(f"     → 关键词'第二个' → 第2个EditText (Y={get_y_coord(target_elem)})")
+                            print(f"     → 关键词'第二个' → 第2个EditText (Y={get_y_coord(target_elem)})", file=sys.stderr)
                     elif any(kw in query for kw in ['第三个', '第3个', '3个']):
                         target_elem = sorted_edittexts[2] if len(sorted_edittexts) > 2 else None
                         if target_elem:
-                            print(f"     → 关键词'第三个' → 第3个EditText (Y={get_y_coord(target_elem)})")
+                            print(f"     → 关键词'第三个' → 第3个EditText (Y={get_y_coord(target_elem)})", file=sys.stderr)
                     # 原有的关键词匹配
                     elif any(kw in query for kw in ['邮箱', '账号', '用户名', '手机号', '电话']):
                         target_elem = sorted_edittexts[0]
-                        print(f"     → 关键词'邮箱/账号' → 第1个EditText (Y={get_y_coord(target_elem)})")
+                        print(f"     → 关键词'邮箱/账号' → 第1个EditText (Y={get_y_coord(target_elem)})", file=sys.stderr)
                     elif '验证码' in query:
                         target_elem = sorted_edittexts[1] if len(sorted_edittexts) > 1 else sorted_edittexts[0]
-                        print(f"     → 关键词'验证码' → 第2个EditText (Y={get_y_coord(target_elem)})")
+                        print(f"     → 关键词'验证码' → 第2个EditText (Y={get_y_coord(target_elem)})", file=sys.stderr)
                     elif '密码' in query:
                         target_elem = sorted_edittexts[1] if len(sorted_edittexts) > 1 else sorted_edittexts[0]
-                        print(f"     → 关键词'密码' → 第2个EditText (Y={get_y_coord(target_elem)})")
+                        print(f"     → 关键词'密码' → 第2个EditText (Y={get_y_coord(target_elem)})", file=sys.stderr)
                     
                     if target_elem:
                         # 直接返回，使用bounds或class_name[index]作为ref
@@ -889,10 +882,10 @@ class MobileSmartLocator:
                             index = sorted_edittexts.index(target_elem)
                             ref = f"EditText[{index}]"
                         
-                        print(f"  🎯 位置索引定位成功:")
-                        print(f"     元素: {query}")
-                        print(f"     ref: '{ref}'")
-                        print(f"     置信度: 90%")
+                        print(f"  🎯 位置索引定位成功:", file=sys.stderr)
+                        print(f"     元素: {query}", file=sys.stderr)
+                        print(f"     ref: '{ref}'", file=sys.stderr)
+                        print(f"     置信度: 90%", file=sys.stderr)
                         
                         result = {
                             'element': query,
@@ -918,8 +911,8 @@ class MobileSmartLocator:
                         height = y2 - y1
                         # 如果宽度超过屏幕宽度的90%，很可能是H5容器元素
                         if width > 1080 * 0.9:  # 假设屏幕宽度1080
-                            print(f"  ⚠️  检测到超大H5容器: width={width}, height={height}")
-                            print(f"      bounds={bounds}")
+                            print(f"  ⚠️  检测到超大H5容器: width={width}, height={height}", file=sys.stderr)
+                            print(f"      bounds={bounds}", file=sys.stderr)
                             # 保存这个容器，如果没有其他元素，就点击容器底部中心
                             large_container = elem
                             continue
@@ -927,7 +920,7 @@ class MobileSmartLocator:
             
             # 如果过滤后没有元素了，使用超大容器的bounds坐标点击
             if not filtered_matched and large_container:
-                print(f"  🎯 使用H5容器bounds坐标定位（点击底部中心）")
+                print(f"  🎯 使用H5容器bounds坐标定位（点击底部中心）", file=sys.stderr)
                 bounds = large_container.get('bounds', '')
                 match = re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
                 if match:
@@ -940,8 +933,8 @@ class MobileSmartLocator:
                     # 创建一个小的点击区域（50x50像素）
                     click_bounds = f"[{center_x-25},{bottom_y-25}][{center_x+25},{bottom_y+25}]"
                     
-                    print(f"      点击位置: ({center_x}, {bottom_y})")
-                    print(f"      点击bounds: {click_bounds}")
+                    print(f"      点击位置: ({center_x}, {bottom_y})", file=sys.stderr)
+                    print(f"      点击bounds: {click_bounds}", file=sys.stderr)
                     
                     # 直接返回结果，使用bounds作为ref
                     result = {
@@ -954,10 +947,10 @@ class MobileSmartLocator:
             
             # 如果过滤后没有元素也没有容器，使用原始列表
             if not filtered_matched:
-                print(f"  ⚠️  过滤后无元素，使用原始列表")
+                print(f"  ⚠️  过滤后无元素，使用原始列表", file=sys.stderr)
                 filtered_matched = matched
             elif len(filtered_matched) < len(matched):
-                print(f"  ✅ 过滤后剩余 {len(filtered_matched)} 个元素（原{len(matched)}个）")
+                print(f"  ✅ 过滤后剩余 {len(filtered_matched)} 个元素（原{len(matched)}个）", file=sys.stderr)
             
             # 为每个匹配元素计算详细分数
             score_start = time.time()
@@ -1126,15 +1119,15 @@ class MobileSmartLocator:
             score_time = (time.time() - score_start) * 1000
             
             # 显示前5个的详细评分
-            print(f"  📊 评分详情（前5个） (⏱️ 评分: {score_time:.2f}ms):")
+            print(f"  📊 评分详情（前5个） (⏱️ 评分: {score_time:.2f}ms):", file=sys.stderr)
             for i, (elem, score, details) in enumerate(scored_elements[:5], 1):
                 text = elem.get('text', '')
                 desc = elem.get('content_desc', '')
                 class_name = elem.get('class_name', '')
                 desc_clean = desc.split('\n')[0] if desc else ''
-                print(f"    [{i}] 分数={score:3d}: {desc_clean or text or class_name}")
+                print(f"    [{i}] 分数={score:3d}: {desc_clean or text or class_name}", file=sys.stderr)
                 if details:
-                    print(f"        详情: {' | '.join(details[:3])}")  # 只显示前3个加分项
+                    print(f"        详情: {' | '.join(details[:3])}", file=sys.stderr)  # 只显示前3个加分项
             
             # 选择最佳匹配
             best = scored_elements[0][0] if scored_elements else None
@@ -1176,16 +1169,16 @@ class MobileSmartLocator:
                     if bounds:
                         # 使用bounds作为ref（格式：[x1,y1][x2,y2]）
                         ref = bounds
-                        print(f"  ⚠️  使用bounds作为ref: {bounds}")
+                        print(f"  ⚠️  使用bounds作为ref: {bounds}", file=sys.stderr)
                     elif class_name:
                         # 使用class_name+索引（作为最后手段）
                         # 查找同类元素的索引
                         same_class_elements = [e for e in elements if e.get('class_name') == class_name]
                         index = same_class_elements.index(best) if best in same_class_elements else 0
                         ref = f"{class_name}[{index}]"
-                        print(f"  ⚠️  使用class_name+索引作为ref: {ref}")
+                        print(f"  ⚠️  使用class_name+索引作为ref: {ref}", file=sys.stderr)
                     else:
-                        print(f"  ⚠️  找到匹配元素但无法确定ref: {best}")
+                        print(f"  ⚠️  找到匹配元素但无法确定ref: {best}", file=sys.stderr)
                         # 无法确定ref但有匹配元素，返回候选元素供AI分析
                         candidates = matched[:5] if matched else []
                         return (None, candidates)
@@ -1204,12 +1197,12 @@ class MobileSmartLocator:
                         element_desc = best.get('class_name', 'element')
                 
                 total_time = (time.time() - start_time) * 1000
-                print(f"  🎯 选择最佳匹配:")
-                print(f"     元素: {element_desc}")
-                print(f"     ref: '{ref}'")
-                print(f"     评分: {best_score}")
-                print(f"     置信度: {min(95, 70 + best_score // 2)}%")
-                print(f"  ⏱️  XML深度分析总耗时: {total_time:.2f}ms")
+                print(f"  🎯 选择最佳匹配:", file=sys.stderr)
+                print(f"     元素: {element_desc}", file=sys.stderr)
+                print(f"     ref: '{ref}'", file=sys.stderr)
+                print(f"     评分: {best_score}", file=sys.stderr)
+                print(f"     置信度: {min(95, 70 + best_score // 2)}%", file=sys.stderr)
+                print(f"  ⏱️  XML深度分析总耗时: {total_time:.2f}ms", file=sys.stderr)
                 
                 result = {
                     'element': element_desc,
@@ -1261,7 +1254,7 @@ class MobileSmartLocator:
         if not is_position_query:
             return None
         
-        print(f"  📍 Level 3.5: 位置分析...")
+        print(f"  📍 Level 3.5: 位置分析...", file=sys.stderr)
         
         try:
             from .position_analyzer import PositionAnalyzer
@@ -1289,7 +1282,7 @@ class MobileSmartLocator:
                 result = analyzer.analyze_floating_button(elements, query)
             elif '右上角' in query or '上角' in query:
                 # 🎯 新增：右上角位置分析
-                print(f"  🎯 检测到'右上角'查询，调用 analyze_corner_position")
+                print(f"  🎯 检测到'右上角'查询，调用 analyze_corner_position", file=sys.stderr)
                 result = analyzer.analyze_corner_position(elements, query, corner='top_right')
             elif '左上角' in query:
                 result = analyzer.analyze_corner_position(elements, query, corner='top_left')
@@ -1299,30 +1292,30 @@ class MobileSmartLocator:
                 result = analyzer.analyze_corner_position(elements, query, corner='bottom_left')
             elif ('底部' in query and ('导航' in query or '图标' in query)) or ('底部' in query and any(kw in query for kw in ['第一个', '第二个', '第三个', '第四个', '第五个', '第1个', '第2个', '第3个', '第4个', '第5个'])):
                 # 🎯 修复：优先匹配"底部第X个图标"这种描述
-                print(f"  🎯 检测到'底部第X个'查询，调用 analyze_bottom_navigation")
+                print(f"  🎯 检测到'底部第X个'查询，调用 analyze_bottom_navigation", file=sys.stderr)
                 result = analyzer.analyze_bottom_navigation(elements, query)
             elif ('顶部' in query and ('导航' in query or '图标' in query)) or ('顶部' in query and any(kw in query for kw in ['第一个', '第二个', '第三个', '第四个', '第五个', '第1个', '第2个', '第3个', '第4个', '第5个'])):
                 # 🎯 修复：优先匹配"顶部第X个图标"这种描述
-                print(f"  🎯 检测到'顶部第X个'查询，调用 analyze_top_navigation")
+                print(f"  🎯 检测到'顶部第X个'查询，调用 analyze_top_navigation", file=sys.stderr)
                 result = analyzer.analyze_top_navigation(elements, query)
             elif any(kw in query for kw in ['第一个', '第二个', '第三个', '第四个', '第五个', '第1个', '第2个', '第3个', '第4个', '第5个']):
                 # 通用的"第N个"定位（没有位置限定）
-                print(f"  🎯 检测到'第N个'查询，调用 analyze_nth_element")
+                print(f"  🎯 检测到'第N个'查询，调用 analyze_nth_element", file=sys.stderr)
                 result = analyzer.analyze_nth_element(elements, query)
             else:
                 # 其他位置查询（暂不支持）
-                print(f"  ⚠️  未匹配到任何位置分析方法")
+                print(f"  ⚠️  未匹配到任何位置分析方法", file=sys.stderr)
                 result = None
             
             if result:
                 elapsed = (time.time() - start_time) * 1000
-                print(f"     ⏱️  位置分析耗时: {elapsed:.2f}ms")
+                print(f"     ⏱️  位置分析耗时: {elapsed:.2f}ms", file=sys.stderr)
                 return result
             
         except ImportError:
-            print(f"     ⚠️  位置分析器未安装")
+            print(f"     ⚠️  位置分析器未安装", file=sys.stderr)
         except Exception as e:
-            print(f"     ⚠️  位置分析失败: {e}")
+            print(f"     ⚠️  位置分析失败: {e}", file=sys.stderr)
         
         return None
     
@@ -1349,15 +1342,15 @@ class MobileSmartLocator:
             return result
             
         except ImportError:
-            print(f"  ⚠️  AI分析器未配置")
+            print(f"  ⚠️  AI分析器未配置", file=sys.stderr)
             return None
         except Exception as e:
-            print(f"  ⚠️  AI智能兜底失败: {e}")
+            print(f"  ⚠️  AI智能兜底失败: {e}", file=sys.stderr)
             return None
     
     async def _try_vision(self, query: str) -> Optional[Dict]:
         """尝试视觉识别（多模态）"""
-        print(f"  👁️  Level 4: 尝试视觉识别...")
+        print(f"  👁️  Level 4: 尝试视觉识别...", file=sys.stderr)
         try:
             from ...vision.vision_locator import MobileVisionLocator
             
@@ -1369,7 +1362,7 @@ class MobileSmartLocator:
                 x = result.get('x', 0)
                 y = result.get('y', 0)
                 confidence = result.get('confidence', 80)
-                print(f"  ✅ 视觉识别成功: 坐标({x}, {y}), 置信度{confidence}%")
+                print(f"  ✅ 视觉识别成功: 坐标({x}, {y}), 置信度{confidence}%", file=sys.stderr)
                 return {
                     'element': query,
                     'ref': f"vision_coord_{x}_{y}",  # 特殊标记，表示是坐标定位
@@ -1380,19 +1373,19 @@ class MobileSmartLocator:
                 }
             else:
                 reason = result.get('reason', 'unknown') if result else 'result is None'
-                print(f"  ❌ 视觉识别未找到元素: {reason}")
+                print(f"  ❌ 视觉识别未找到元素: {reason}", file=sys.stderr)
         except ImportError:
-            print("  ⚠️  视觉识别模块未安装（需要安装dashscope: pip install dashscope）")
+            print("  ⚠️  视觉识别模块未安装（需要安装dashscope: pip install dashscope）", file=sys.stderr)
         except Exception as e:
-            print(f"  ❌ 视觉识别异常: {e}")
+            print(f"  ❌ 视觉识别异常: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc()
         
         return None
     
-    async def _try_ai_analysis(self, query: str) -> Optional[Dict]:
+    async def _try_ai_analysis(self, query: str, elements: list = None) -> Optional[Dict]:
         """尝试文本AI分析（最后手段）- 使用AI分析移动端XML结构"""
-        print(f"  🤖 Level 5: 尝试AI分析...")
+        print(f"  🤖 Level 4: 尝试AI分析...", file=sys.stderr)
         
         try:
             # 加载根目录的.env配置
@@ -1407,14 +1400,14 @@ class MobileSmartLocator:
             
             if env_file.exists():
                 load_dotenv(env_file)
-                print(f"  ✅ 已加载.env配置: {env_file}")
+                print(f"  ✅ 已加载.env配置: {env_file}", file=sys.stderr)
             else:
                 # 尝试从当前目录向上查找
                 for parent in current_dir.parents:
                     env_file = parent / '.env'
                     if env_file.exists():
                         load_dotenv(env_file)
-                        print(f"  ✅ 已加载.env配置: {env_file}")
+                        print(f"  ✅ 已加载.env配置: {env_file}", file=sys.stderr)
                         break
             
             # 获取页面快照（格式化的XML结构）
@@ -1432,10 +1425,10 @@ class MobileSmartLocator:
                 # 检查AI配置是否可用
                 ai_config = get_ai_config()
                 if ai_config.default_provider == "manual" or ai_config.is_manual_mode():
-                    print(f"  ⚠️  AI配置为手动模式，跳过AI分析")
+                    print(f"  ⚠️  AI配置为手动模式，跳过AI分析", file=sys.stderr)
                     return None
                 
-                print(f"  🤖 使用AI分析 (Provider: {ai_config.default_provider}, Model: {ai_config.default_model})")
+                print(f"  🤖 使用AI分析 (Provider: {ai_config.default_provider}, Model: {ai_config.default_model})", file=sys.stderr)
                 
                 # 创建适配器，让AI可以分析移动端页面
                 class MobileAdapter:
@@ -1451,27 +1444,32 @@ class MobileSmartLocator:
                 result = await optimize_with_ai_auto(adapter, query)
                 
                 if result:
-                    print(f"  ✅ AI分析成功: {result.get('element', '')} (置信度: {result.get('confidence', 0)}%)")
-                    # 转换结果为移动端格式
-                    return self._convert_result(result, query)
+                    print(f"  ✅ AI分析成功: {result.get('element', '')} (置信度: {result.get('confidence', 0)}%)", file=sys.stderr)
+                    # 转换结果为移动端格式，传入elements避免重复读取XML
+                    converted = self._convert_result(result, query, elements)
+                    if converted and converted.get('ref'):
+                        return converted
+                    else:
+                        print(f"  ⚠️  AI分析结果转换失败（无法在移动端XML中找到对应元素）", file=sys.stderr)
+                        return None
                 else:
-                    print(f"  ❌ AI分析未找到元素")
+                    print(f"  ❌ AI分析未找到元素", file=sys.stderr)
                     return None
                     
             except ImportError as e:
-                print(f"  ⚠️  无法导入AI模块: {e}")
+                print(f"  ⚠️  无法导入AI模块: {e}", file=sys.stderr)
                 return None
             except Exception as e:
-                print(f"  ⚠️  AI分析失败: {e}")
+                print(f"  ⚠️  AI分析失败: {e}", file=sys.stderr)
                 import traceback
                 traceback.print_exc()
                 return None
                 
         except ImportError:
-            print(f"  ⚠️  未安装python-dotenv，无法加载.env配置")
+            print(f"  ⚠️  未安装python-dotenv，无法加载.env配置", file=sys.stderr)
             return None
         except Exception as e:
-            print(f"  ⚠️  AI分析异常: {e}")
+            print(f"  ⚠️  AI分析异常: {e}", file=sys.stderr)
             return None
     
     def _convert_result(self, result: Dict, query: str = "", elements: list = None) -> Dict:
@@ -1492,13 +1490,13 @@ class MobileSmartLocator:
         ref = result.get('ref', '')
         element = result.get('element', '')
         
-        print(f"  🔄 转换AI结果: ref='{ref}', element='{element}', query='{query}'")
+        print(f"  🔄 转换AI结果: ref='{ref}', element='{element}', query='{query}'", file=sys.stderr)
         
         # 如果ref是CSS选择器或HTML标签格式，需要重新定位
         # 这种情况下，使用query或element文本重新在XML中查找
         html_tags = ['input', 'button', 'textbox', 'submit', 'textarea', 'select', 'a', 'div', 'span']
         if '.' in ref or '#' in ref or ref.startswith('button') or ref.startswith('textbox') or ref.lower() in html_tags:
-            print(f"  🔍 检测到HTML标签/CSS选择器，重新定位...")
+            print(f"  🔍 检测到HTML标签/CSS选择器，重新定位...", file=sys.stderr)
             # CSS选择器格式，需要重新定位
             # 使用query或element文本在XML中查找
             
@@ -1512,7 +1510,7 @@ class MobileSmartLocator:
             
             # 🔍 只在可点击元素中查找
             clickable_elements = [e for e in elements if e.get('clickable') or e.get('class_name') in ['Button', 'ImageButton', 'EditText']]
-            print(f"  🔍 在{len(clickable_elements)}个可点击元素中查找 '{search_text}'")
+            print(f"  🔍 在{len(clickable_elements)}个可点击元素中查找 '{search_text}'", file=sys.stderr)
             
             for elem in clickable_elements:
                 elem_text = elem.get('text', '').lower()
@@ -1534,7 +1532,7 @@ class MobileSmartLocator:
                     # 找到匹配，优先使用text/description（更可靠），其次使用resource-id
                     new_ref = elem.get('text') or elem.get('content_desc') or elem.get('resource_id', '')
                     if new_ref:
-                        print(f"  ✅ 找到匹配元素: {new_ref}")
+                        print(f"  ✅ 找到匹配元素: {new_ref}", file=sys.stderr)
                         result['ref'] = new_ref
                         result['method'] = 'rule_match_converted'
                         return result
@@ -1542,19 +1540,20 @@ class MobileSmartLocator:
             # 如果找不到，尝试使用element文本（去除"按钮"等后缀）
             if element:
                 element_clean = element.replace('按钮', '').replace('输入框', '').strip().lower()
-                print(f"  🔍 尝试使用清洗后的element: '{element_clean}'")
+                print(f"  🔍 尝试使用清洗后的element: '{element_clean}'", file=sys.stderr)
                 for elem in elements:
                     elem_text = elem.get('text', '').lower()
                     elem_desc = elem.get('content_desc', '').lower()
                     if element_clean in elem_text or elem_text in element_clean or element_clean in elem_desc or elem_desc in element_clean:
                         new_ref = elem.get('resource_id') or elem.get('text') or elem.get('content_desc', '')
                         if new_ref:
-                            print(f"  ✅ 找到匹配元素: {new_ref}")
+                            print(f"  ✅ 找到匹配元素: {new_ref}", file=sys.stderr)
                             result['ref'] = new_ref
                             result['method'] = 'rule_match_converted'
                             return result
             
-            print(f"  ❌ 转换失败，未找到匹配元素")
+            print(f"  ❌ 转换失败，未找到匹配元素", file=sys.stderr)
+            return None  # 转换失败返回None，而不是返回原result
         
         # 其他格式（resource-id、text、bounds）直接返回
         return result
@@ -1599,32 +1598,32 @@ class MobileSmartLocator:
     
     def print_performance_report(self):
         """打印性能报告"""
-        print("\n" + "=" * 80)
-        print("📊 性能监控报告")
-        print("=" * 80)
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("📊 性能监控报告", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
         
-        print(f"\n📈 总体统计:")
-        print(f"  总定位次数: {self.stats['total']}")
-        print(f"  总耗时: {self.stats['total_time']:.2f}ms")
-        print(f"  平均耗时: {self.stats['total_time'] / max(1, self.stats['total']):.2f}ms")
-        print(f"  XML总读取次数: {self.stats['xml_read_count']}")
+        print(f"\n📈 总体统计:", file=sys.stderr)
+        print(f"  总定位次数: {self.stats['total']}", file=sys.stderr)
+        print(f"  总耗时: {self.stats['total_time']:.2f}ms", file=sys.stderr)
+        print(f"  平均耗时: {self.stats['total_time'] / max(1, self.stats['total']):.2f}ms", file=sys.stderr)
+        print(f"  XML总读取次数: {self.stats['xml_read_count']}", file=sys.stderr)
         
-        print(f"\n🎯 匹配方式分布:")
-        print(f"  缓存命中: {self.stats['cache_hits']} ({self.stats['cache_hits']/max(1, self.stats['total'])*100:.1f}%)")
-        print(f"  快速预匹配: {self.stats['quick_match_hits']} ({self.stats['quick_match_hits']/max(1, self.stats['total'])*100:.1f}%)")
-        print(f"  规则匹配: {self.stats['rule_hits']} ({self.stats['rule_hits']/max(1, self.stats['total'])*100:.1f}%)")
-        print(f"  XML深度分析: {self.stats['xml_analysis']} ({self.stats['xml_analysis']/max(1, self.stats['total'])*100:.1f}%)")
-        print(f"  位置分析: {self.stats.get('position_analysis', 0)} ({self.stats.get('position_analysis', 0)/max(1, self.stats['total'])*100:.1f}%) ⭐")
-        print(f"  视觉识别: {self.stats['vision_calls']} ({self.stats['vision_calls']/max(1, self.stats['total'])*100:.1f}%)")
-        print(f"  AI分析: {self.stats['ai_calls']} ({self.stats['ai_calls']/max(1, self.stats['total'])*100:.1f}%)")
+        print(f"\n🎯 匹配方式分布:", file=sys.stderr)
+        print(f"  缓存命中: {self.stats['cache_hits']} ({self.stats['cache_hits']/max(1, self.stats['total'])*100:.1f}%)", file=sys.stderr)
+        print(f"  快速预匹配: {self.stats['quick_match_hits']} ({self.stats['quick_match_hits']/max(1, self.stats['total'])*100:.1f}%)", file=sys.stderr)
+        print(f"  规则匹配: {self.stats['rule_hits']} ({self.stats['rule_hits']/max(1, self.stats['total'])*100:.1f}%)", file=sys.stderr)
+        print(f"  XML深度分析: {self.stats['xml_analysis']} ({self.stats['xml_analysis']/max(1, self.stats['total'])*100:.1f}%)", file=sys.stderr)
+        print(f"  位置分析: {self.stats.get('position_analysis', 0)} ({self.stats.get('position_analysis', 0)/max(1, self.stats['total'])*100:.1f}%) ⭐", file=sys.stderr)
+        print(f"  视觉识别: {self.stats['vision_calls']} ({self.stats['vision_calls']/max(1, self.stats['total'])*100:.1f}%)", file=sys.stderr)
+        print(f"  AI分析: {self.stats['ai_calls']} ({self.stats['ai_calls']/max(1, self.stats['total'])*100:.1f}%)", file=sys.stderr)
         
         if self.performance_logs:
-            print(f"\n📋 详细性能日志:")
-            print(f"{'序号':<6}{'查询':<25}{'方法':<15}{'总耗时(ms)':<12}{'XML次数':<10}{'XML耗时(ms)':<12}")
-            print("-" * 80)
+            print(f"\n📋 详细性能日志:", file=sys.stderr)
+            print(f"{'序号':<6}{'查询':<25}{'方法':<15}{'总耗时(ms)':<12}{'XML次数':<10}{'XML耗时(ms)':<12}", file=sys.stderr)
+            print("-" * 80, file=sys.stderr)
             for i, log in enumerate(self.performance_logs, 1):
                 query_short = log['query'][:22] + '...' if len(log['query']) > 22 else log['query']
-                print(f"{i:<6}{query_short:<25}{log['method']:<15}{log['total_time']:<12.2f}{log['xml_count']:<10}{log['xml_time']:<12.2f}")
+                print(f"{i:<6}{query_short:<25}{log['method']:<15}{log['total_time']:<12.2f}{log['xml_count']:<10}{log['xml_time']:<12.2f}", file=sys.stderr)
         
-        print("\n" + "=" * 80)
+        print("\n" + "=" * 80, file=sys.stderr)
 

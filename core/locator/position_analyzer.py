@@ -14,6 +14,7 @@
 ✓ 悬浮按钮（固定位置）
 ✓ 网格布局的图标（如九宫格）
 """
+import sys
 import re
 from typing import List, Dict, Optional, Tuple
 
@@ -61,7 +62,7 @@ class PositionAnalyzer:
         if index is None:
             return None
         
-        print(f"  📍 位置分析：第{index}个元素")
+        print(f"  📍 位置分析：第{index}个元素", file=sys.stderr)
         
         # 提取关键词（帖子、按钮、图标等）
         keywords = []
@@ -137,7 +138,7 @@ class PositionAnalyzer:
                 if elem.get('clickable', False) or elem.get('long_clickable', False):
                     candidates.append(elem)
         
-        print(f"     → 找到 {len(candidates)} 个候选元素")
+        print(f"     → 找到 {len(candidates)} 个候选元素", file=sys.stderr)
         
         if not candidates:
             return None
@@ -147,19 +148,19 @@ class PositionAnalyzer:
         
         # 3. 选择第N个
         if index > len(sorted_candidates):
-            print(f"     ❌ 只有 {len(sorted_candidates)} 个元素，无法选择第 {index} 个")
+            print(f"     ❌ 只有 {len(sorted_candidates)} 个元素，无法选择第 {index} 个", file=sys.stderr)
             return None
         
         selected = sorted_candidates[index - 1]  # 转换为0-based索引
         center_x, center_y = self._get_center(selected)
         bounds = selected.get('bounds', '')
         
-        print(f"     ✅ 选择第{index}个元素:")
-        print(f"        class: {selected.get('class_name', 'Unknown')}")
-        print(f"        text: {selected.get('text', '')}")
-        print(f"        desc: {selected.get('content_desc', '')}")
-        print(f"        中心点: ({center_x}, {center_y})")
-        print(f"        bounds: {bounds}")
+        print(f"     ✅ 选择第{index}个元素:", file=sys.stderr)
+        print(f"        class: {selected.get('class_name', 'Unknown')}", file=sys.stderr)
+        print(f"        text: {selected.get('text', '')}", file=sys.stderr)
+        print(f"        desc: {selected.get('content_desc', '')}", file=sys.stderr)
+        print(f"        中心点: ({center_x}, {center_y})", file=sys.stderr)
+        print(f"        bounds: {bounds}", file=sys.stderr)
         
         # 返回结果
         return {
@@ -189,7 +190,7 @@ class PositionAnalyzer:
         Returns:
             匹配的元素信息
         """
-        print(f"  📍 位置分析：悬浮按钮")
+        print(f"  📍 位置分析：悬浮按钮", file=sys.stderr)
         
         # 1. 筛选候选元素
         candidates = []
@@ -222,29 +223,29 @@ class PositionAnalyzer:
                             'bounds': elem.get('bounds', ''),
                         })
         
-        print(f"     → 找到 {len(candidates)} 个悬浮按钮候选")
+        print(f"     → 找到 {len(candidates)} 个悬浮按钮候选", file=sys.stderr)
         
         if not candidates:
             return None
         
         # 2. 打印候选元素
-        print(f"     📋 悬浮按钮候选元素:")
+        print(f"     📋 悬浮按钮候选元素:", file=sys.stderr)
         for i, cand in enumerate(candidates, 1):
-            print(f"       [{i}] 中心点{cand['center']}, 大小{cand['size']}, bounds={cand['bounds']}")
+            print(f"       [{i}] 中心点{cand['center']}, 大小{cand['size']}, bounds={cand['bounds']}", file=sys.stderr)
         
         # 3. 根据查询选择
         if "最下面" in query or "最下方" in query:
             # 选择Y坐标最大的（最下面的）
             selected = max(candidates, key=lambda c: c['center'][1])
-            print(f"     ✅ 选择最下面的悬浮按钮: 中心点{selected['center']}")
+            print(f"     ✅ 选择最下面的悬浮按钮: 中心点{selected['center']}", file=sys.stderr)
         elif "右下角" in query or "右下" in query:
             # 选择右下角的（X最大，Y最大）
             selected = max(candidates, key=lambda c: (c['center'][0] + c['center'][1]))
-            print(f"     ✅ 选择右下角的悬浮按钮: 中心点{selected['center']}")
+            print(f"     ✅ 选择右下角的悬浮按钮: 中心点{selected['center']}", file=sys.stderr)
         else:
             # 默认选择最下面的
             selected = max(candidates, key=lambda c: c['center'][1])
-            print(f"     ✅ 默认选择最下面的悬浮按钮: 中心点{selected['center']}")
+            print(f"     ✅ 默认选择最下面的悬浮按钮: 中心点{selected['center']}", file=sys.stderr)
         
         return {
             'element': query,
@@ -266,18 +267,18 @@ class PositionAnalyzer:
         Returns:
             匹配的元素信息
         """
-        print(f"  📍 位置分析：底部导航栏")
+        print(f"  📍 位置分析：底部导航栏", file=sys.stderr)
         
         # 1. 筛选底部区域的元素
         bottom_elements = self._filter_by_region(elements, 'bottom')
-        print(f"     → 底部区域元素: {len(bottom_elements)}个")
+        print(f"     → 底部区域元素: {len(bottom_elements)}个", file=sys.stderr)
         
         # 2. 筛选可点击的元素（导航栏图标通常是clickable）
         clickable_bottom = [e for e in bottom_elements if e.get('clickable', False)]
-        print(f"     → 可点击元素: {len(clickable_bottom)}个")
+        print(f"     → 可点击元素: {len(clickable_bottom)}个", file=sys.stderr)
         
         if not clickable_bottom:
-            print(f"     ❌ 底部没有可点击元素")
+            print(f"     ❌ 底部没有可点击元素", file=sys.stderr)
             return None
         
         # 2.5. 过滤掉异常宽的元素（如全屏宽度的View）
@@ -293,14 +294,14 @@ class PositionAnalyzer:
                     filtered_elements.append(elem)
         
         if filtered_elements:
-            print(f"     → 过滤后元素: {len(filtered_elements)}个（过滤掉{len(clickable_bottom) - len(filtered_elements)}个异常宽度元素）")
+            print(f"     → 过滤后元素: {len(filtered_elements)}个（过滤掉{len(clickable_bottom) - len(filtered_elements)}个异常宽度元素）", file=sys.stderr)
             clickable_bottom = filtered_elements
         
         # 3. 按X坐标排序（从左到右）
         sorted_elements = sorted(clickable_bottom, key=lambda e: self._get_center_x(e))
         
         # 4. 打印所有候选元素
-        print(f"     📋 底部导航栏候选元素（从左到右）:")
+        print(f"     📋 底部导航栏候选元素（从左到右）:", file=sys.stderr)
         for i, elem in enumerate(sorted_elements, 1):
             bounds = elem.get('bounds', '')
             center_x, center_y = self._get_center(elem)
@@ -314,18 +315,18 @@ class PositionAnalyzer:
             if desc:
                 info += f", desc='{desc[:20]}'"
             
-            print(f"       [{i}] 中心点({center_x}, {center_y}) | bounds={bounds} | {info}")
+            print(f"       [{i}] 中心点({center_x}, {center_y}) | bounds={bounds} | {info}", file=sys.stderr)
         
         # 5. 根据查询提取索引
         index = self._extract_index(query)
         
         if index is None:
             # 没有明确索引，尝试关键词匹配
-            print(f"     ⚠️  查询中没有明确索引，尝试关键词匹配...")
+            print(f"     ⚠️  查询中没有明确索引，尝试关键词匹配...", file=sys.stderr)
             return self._match_by_keyword(sorted_elements, query)
         
         if index < 1 or index > len(sorted_elements):
-            print(f"     ❌ 索引超出范围: {index}（共{len(sorted_elements)}个元素）")
+            print(f"     ❌ 索引超出范围: {index}（共{len(sorted_elements)}个元素）", file=sys.stderr)
             return None
         
         # 6. 返回对应索引的元素
@@ -333,9 +334,9 @@ class PositionAnalyzer:
         bounds = selected.get('bounds', '')
         center_x, center_y = self._get_center(selected)
         
-        print(f"     ✅ 选择第{index}个元素:")
-        print(f"        中心点: ({center_x}, {center_y})")
-        print(f"        bounds: {bounds}")
+        print(f"     ✅ 选择第{index}个元素:", file=sys.stderr)
+        print(f"        中心点: ({center_x}, {center_y})", file=sys.stderr)
+        print(f"        bounds: {bounds}", file=sys.stderr)
         
         return {
             'element': query,
@@ -358,7 +359,7 @@ class PositionAnalyzer:
         Returns:
             匹配的元素信息
         """
-        print(f"  📍 位置分析：{corner}角落")
+        print(f"  📍 位置分析：{corner}角落", file=sys.stderr)
         
         # 定义角落区域（屏幕的10%区域）
         corner_threshold = 0.1  # 10%
@@ -421,7 +422,7 @@ class PositionAnalyzer:
                     'bounds': elem.get('bounds', ''),
                 })
         
-        print(f"     → 找到 {len(candidates)} 个{corner}角落候选元素")
+        print(f"     → 找到 {len(candidates)} 个{corner}角落候选元素", file=sys.stderr)
         
         if not candidates:
             return None
@@ -452,9 +453,9 @@ class PositionAnalyzer:
         center_x, center_y = selected['center']
         bounds = selected['bounds']
         
-        print(f"     ✅ 选择{corner}角落元素:")
-        print(f"        中心点: ({center_x}, {center_y})")
-        print(f"        bounds: {bounds}")
+        print(f"     ✅ 选择{corner}角落元素:", file=sys.stderr)
+        print(f"        中心点: ({center_x}, {center_y})", file=sys.stderr)
+        print(f"        bounds: {bounds}", file=sys.stderr)
         
         return {
             'element': query,
@@ -476,18 +477,18 @@ class PositionAnalyzer:
         Returns:
             匹配的元素信息
         """
-        print(f"  📍 位置分析：顶部导航栏")
+        print(f"  📍 位置分析：顶部导航栏", file=sys.stderr)
         
         # 1. 筛选顶部区域的元素
         top_elements = self._filter_by_region(elements, 'top')
-        print(f"     → 顶部区域元素: {len(top_elements)}个")
+        print(f"     → 顶部区域元素: {len(top_elements)}个", file=sys.stderr)
         
         # 2. 筛选可点击的元素
         clickable_top = [e for e in top_elements if e.get('clickable', False)]
-        print(f"     → 可点击元素: {len(clickable_top)}个")
+        print(f"     → 可点击元素: {len(clickable_top)}个", file=sys.stderr)
         
         if not clickable_top:
-            print(f"     ❌ 顶部没有可点击元素")
+            print(f"     ❌ 顶部没有可点击元素", file=sys.stderr)
             return None
         
         # 3. 按X坐标排序（从左到右）
@@ -497,7 +498,7 @@ class PositionAnalyzer:
         index = self._extract_index(query)
         
         if index is None or index < 1 or index > len(sorted_elements):
-            print(f"     ❌ 无法确定索引")
+            print(f"     ❌ 无法确定索引", file=sys.stderr)
             return None
         
         # 5. 返回对应索引的元素
@@ -505,7 +506,7 @@ class PositionAnalyzer:
         bounds = selected.get('bounds', '')
         center_x, center_y = self._get_center(selected)
         
-        print(f"     ✅ 选择第{index}个元素: 中心点({center_x}, {center_y})")
+        print(f"     ✅ 选择第{index}个元素: 中心点({center_x}, {center_y})", file=sys.stderr)
         
         return {
             'element': query,
@@ -529,7 +530,7 @@ class PositionAnalyzer:
         Returns:
             匹配的元素信息
         """
-        print(f"  📍 位置分析：网格布局 ({rows}x{cols})")
+        print(f"  📍 位置分析：网格布局 ({rows}x{cols})", file=sys.stderr)
         
         # 1. 筛选可点击的元素
         clickable = [e for e in elements if e.get('clickable', False)]
@@ -547,11 +548,11 @@ class PositionAnalyzer:
         row_idx, col_idx = self._extract_grid_index(query)
         
         if row_idx is None or col_idx is None:
-            print(f"     ❌ 无法解析网格索引")
+            print(f"     ❌ 无法解析网格索引", file=sys.stderr)
             return None
         
         if row_idx >= len(grid) or col_idx >= len(grid[row_idx]):
-            print(f"     ❌ 索引超出范围")
+            print(f"     ❌ 索引超出范围", file=sys.stderr)
             return None
         
         # 5. 返回对应位置的元素
@@ -559,7 +560,7 @@ class PositionAnalyzer:
         bounds = selected.get('bounds', '')
         center_x, center_y = self._get_center(selected)
         
-        print(f"     ✅ 选择第{row_idx+1}行第{col_idx+1}列: 中心点({center_x}, {center_y})")
+        print(f"     ✅ 选择第{row_idx+1}行第{col_idx+1}列: 中心点({center_x}, {center_y})", file=sys.stderr)
         
         return {
             'element': query,
@@ -795,8 +796,8 @@ class PositionAnalyzer:
                     bounds = selected.get('bounds', '')
                     center_x, center_y = self._get_center(selected)
                     
-                    print(f"     ✅ 关键词匹配: '{keyword}' → 第{index+1}个元素")
-                    print(f"        中心点: ({center_x}, {center_y})")
+                    print(f"     ✅ 关键词匹配: '{keyword}' → 第{index+1}个元素", file=sys.stderr)
+                    print(f"        中心点: ({center_x}, {center_y})", file=sys.stderr)
                     
                     return {
                         'element': query,
@@ -807,6 +808,6 @@ class PositionAnalyzer:
                         'y': center_y,
                     }
         
-        print(f"     ❌ 未找到匹配的关键词")
+        print(f"     ❌ 未找到匹配的关键词", file=sys.stderr)
         return None
 

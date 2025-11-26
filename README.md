@@ -1,6 +1,6 @@
 # Mobile MCP AI
 
-移动端自动化测试框架，支持通过 Cursor AI 用自然语言执行测试并生成 pytest 测试用例。
+移动端自动化 MCP Server - 为 Cursor AI 提供移动设备控制能力，支持 Android/iOS
 
 <div align="center">
 
@@ -9,145 +9,259 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Gitee Stars](https://gitee.com/chang-xinping/mobile-automation-mcp-service/badge/star.svg?theme=white)](https://gitee.com/chang-xinping/mobile-automation-mcp-service)
 
-**如果这个项目对你有帮助，请给个 ⭐ Star 支持一下！**
+**⭐ 如果这个项目对你有帮助，请给个 Star 支持一下！⭐**
+
+**🆕 v2.0.0 重大更新：AI 功能可选化！基础工具不需要配置 AI 密钥**
 
 </div>
 
-## 功能特性
+## ✨ v2.0.0 核心特性
 
-### 🎯 自然语言驱动的智能测试
-- **零代码测试**：用自然语言描述测试流程，AI 自动理解并执行每一步操作
-- **智能交互**：自动处理异常情况，智能重试和错误恢复
-- **降低门槛**：无需编写复杂脚本，降低测试门槛 90%+
+### 🎯 AI 功能可选化（重大更新）
+- **基础模式**：不需要配置 AI 密钥，Cursor AI 提供所有智能能力
+- **智能模式**：可选配置 AI 密钥，适合构建自动化测试平台
+- **零成本起步**：基础工具完全免费，无需额外 AI API 费用
+- **灵活选择**：根据使用场景自由选择是否启用 AI 功能
 
-### 🎨 智能定位策略
-- **多级降级定位**：多层定位策略智能降级
-- **高成功率**：定位成功率 95%+，平均耗时 <100ms（缓存命中 <5ms）
-- **智能评分算法**：基于类型匹配、文本匹配、位置权重等多维度评分
-- **多模态 AI**：支持视觉识别，应对复杂定位场景
+### 📦 双层工具架构
 
-### 🚀 一键生成 pytest 测试脚本
-- **自动脚本生成**：基于操作历史自动生成标准 pytest 格式测试脚本
-- **100% 可执行**：使用已验证的定位方式，确保脚本可直接运行
-- **完整支持**：支持 pytest fixture、参数化、Allure 报告等所有特性
-- **批量执行**：生成的脚本可与其他测试用例一起批量运行
+#### 基础工具（9个，不需要 AI）
+- `mobile_list_elements` - 列出所有可交互元素
+- `mobile_click_by_id` - 通过 resource-id 精确点击
+- `mobile_click_by_text` - 通过文本内容点击
+- `mobile_click_at_coords` - 点击指定坐标
+- `mobile_input_text_by_id` - 在输入框输入文本
+- `mobile_find_elements_by_class` - 按类名查找元素
+- `mobile_wait_for_element` - 等待元素出现
+- `mobile_take_screenshot` - 截取屏幕（支持 Cursor AI 视觉识别）
+- `mobile_take_screenshot_region` - 区域截图
+
+#### 智能工具（4个，需要 AI，可选）
+- `mobile_smart_click` - 自然语言智能点击
+- `mobile_smart_input` - 自然语言智能输入
+- `mobile_analyze_screenshot` - AI 视觉识别定位
+- `mobile_get_ai_status` - 检查 AI 功能状态
+
+#### 通用工具（4个）
+- `mobile_snapshot` - 获取页面结构
+- `mobile_launch_app` - 启动应用
+- `mobile_swipe` - 滑动屏幕
+- `mobile_press_key` - 按键操作
 
 ### 🌐 跨平台支持
-- **双平台支持**：完美支持 Android 和 iOS 平台
-- **统一接口**：通过适配器模式实现 80%+ 代码复用率
-- **设备管理**：自动检测和管理连接的设备，支持多设备切换
+- **双平台支持**：完美支持 Android 和 iOS
+- **统一接口**：通过适配器模式实现代码复用
+- **设备管理**：自动检测和管理连接的设备
 
 ### 🤖 与 Cursor AI 深度集成
-- **MCP 协议**：基于 Model Context Protocol，与 Cursor AI 无缝集成
-- **20+ 工具**：提供丰富的移动端操作工具，AI 智能调用
-- **AI 增强**：支持多平台 AI（Cursor/Claude/OpenAI/Gemini）自动检测与切换
+- **MCP 协议**：基于 Model Context Protocol，无缝集成
+- **17 个工具**：丰富的移动端操作工具
+- **视觉识别**：Cursor AI 可以直接分析截图并操作
 
-### ⚡ 性能优化
-- **XML 缓存机制**：TTL 1 秒缓存，减少重复读取开销
-- **元素预过滤**：按类型、位置、属性预过滤，减少 50%+ 遍历
-- **单次读取复用**：避免 400-1000ms 的重复 XML 读取开销
+## 📦 安装
 
-## 安装
-
+### 基础安装（推荐）
 ```bash
+# 不需要 AI 密钥，完全免费
 pip install mobile-mcp-ai
 ```
 
-## 快速开始
+### 完整安装（可选）
+```bash
+# 如果需要智能工具或构建自动化平台
+pip install mobile-mcp-ai[ai]
+```
+
+## 🚀 快速开始
 
 ### 1. 配置 Cursor MCP
 
-创建 `.cursor/mcp.json` 文件（项目根目录或用户目录 `~/.cursor/mcp.json`）：
+编辑 `~/.cursor/mcp.json`（macOS/Linux）或 `%APPDATA%\Cursor\mcp.json`（Windows）：
 
+**基础模式（推荐新手，不需要 AI 密钥）**：
 ```json
 {
   "mcpServers": {
-    "mobile-mcp-ai": {
-      "command": "python",  // 建议使用当前项目的 Python 路径（如 venv/bin/python）
-      "args": ["-m", "mobile_mcp.mcp.mcp_server"],
+    "mobile-automation": {
+      "command": "python",
+      "args": ["-m", "mobile_mcp.mcp.mcp_server_simple"],
+      "env": {}
+    }
+  }
+}
+```
+
+**智能模式（可选，需要 AI 密钥）**：
+```json
+{
+  "mcpServers": {
+    "mobile-automation": {
+      "command": "python",
+      "args": ["-m", "mobile_mcp.mcp.mcp_server_simple"],
       "env": {
-        "MOBILE_DEVICE_ID": "auto"
+        "AI_PROVIDER": "qwen",
+        "QWEN_API_KEY": "sk-your-api-key"
       }
     }
   }
 }
 ```
 
-详细配置说明请查看：[启动指南](docs/START_GUIDE.md)
+> 💡 **提示**：基础模式下，Cursor AI 本身就能提供所有智能能力（包括视觉识别），无需额外配置 AI 密钥！
+
+详细配置说明：[用户配置指南](docs/USER_CONFIGURATION_GUIDE.md)
 
 ### 2. 连接设备
 
 ```bash
 # Android 设备
 adb devices  # 确认设备可见
+
+# iOS 设备（可选）
+pip install mobile-mcp-ai[ios]
 ```
 
 ### 3. 重启 Cursor
 
-配置完成后，完全退出并重新启动 Cursor。
+配置完成后，**完全退出**并重新启动 Cursor。
 
 ### 4. 开始使用
 
-重启 Cursor 后，在聊天窗口中用自然语言描述测试流程：
-
+#### 方式1：基础工具（明确指定元素）
 ```
-帮我测试登录功能：
-1. 启动 com.example.app
-2. 点击登录按钮
-3. 输入用户名 admin
-4. 输入密码 password
-5. 点击提交按钮
-6. 验证页面是否显示"欢迎"
+@MCP 帮我测试登录：
+1. 列出所有元素
+2. 点击 resource-id 为 "com.app:id/login_btn"
+3. 在 resource-id "com.app:id/username" 输入 "admin"
+4. 截图保存
 ```
 
-AI 会自动理解并执行每一步操作，智能定位元素，处理异常情况。
-
-## 使用示例
-
-### 执行测试
-
-在 Cursor 中用自然语言描述测试流程，AI 会自动执行每一步操作。
-
-### 生成 pytest 脚本
-
-执行完测试后，可以生成 pytest 格式的测试脚本：
-
+#### 方式2：让 Cursor AI 分析截图（推荐）
 ```
-帮我生成 pytest 测试脚本，测试名称是"建议发帖测试"，包名是 com.ixxxx.xxxx，文件名是 test_建议发帖
+@MCP 帮我测试登录：
+1. 先截图看看当前页面
+2. 分析后点击"登录"按钮
+3. 在"用户名"输入框输入 "admin"
+4. 截图确认
 ```
 
-生成的脚本保存在 `tests/` 目录，可以直接运行：
+Cursor AI 会自动截图、分析图片、找到元素坐标并操作！
 
-```bash
-pytest tests/test_建议发帖.py -v
+## 💡 使用示例
+
+### 场景1：基础工具测试（明确元素）
+```
+@MCP 执行以下操作：
+1. 启动应用 com.example.app
+2. 列出所有可点击元素
+3. 点击 resource-id "com.example:id/login_btn"
+4. 等待元素 "com.example:id/home" 出现
+5. 截图保存
 ```
 
-## 可用工具
+### 场景2：Cursor AI 视觉分析（智能推荐）
+```
+@MCP 帮我测试登录功能：
+1. 截图看看当前页面
+2. 找到并点击"登录"按钮
+3. 再截图，找到"用户名"输入框并输入 "test123"
+4. 找到"密码"输入框并输入 "pass123"
+5. 点击"确定"按钮
+6. 截图确认结果
+```
 
-配置完成后，Cursor AI 可以使用以下工具：
+### 场景3：智能工具（需要配置 AI）
+```
+@MCP 检查 AI 功能状态
+@MCP 用智能方式点击"登录"按钮
+@MCP 在"用户名"输入框输入 "test123"
+```
 
-- **设备管理**：`mobile_list_devices`, `mobile_get_current_package`, `mobile_get_screen_size` 等
-- **交互操作**：`mobile_click`, `mobile_input`, `mobile_swipe`, `mobile_press_key` 等
-- **页面分析**：`mobile_snapshot`, `mobile_take_screenshot`, `mobile_assert_text`
-- **应用管理**：`mobile_launch_app`, `mobile_list_apps`, `mobile_install_app` 等
-- **AI 增强**：`mobile_generate_test_script`（生成 pytest 脚本）
+## 🛠️ 工具列表
 
-完整工具列表和使用说明请查看文档。
+### 基础工具（不需要 AI，共 9 个）
+| 工具 | 说明 | 示例 |
+|------|------|------|
+| `mobile_list_elements` | 列出所有可交互元素 | 显示 resource_id, text, bounds |
+| `mobile_click_by_id` | 通过 resource-id 点击 | 精确可靠 |
+| `mobile_click_by_text` | 通过文本点击 | 文本完全匹配 |
+| `mobile_click_at_coords` | 点击坐标 | 配合截图分析使用 |
+| `mobile_input_text_by_id` | 输入文本 | 通过 resource-id |
+| `mobile_find_elements_by_class` | 按类名查找 | 如 EditText |
+| `mobile_wait_for_element` | 等待元素出现 | 等待页面加载 |
+| `mobile_take_screenshot` | 截屏 | 供 Cursor AI 视觉识别 |
+| `mobile_take_screenshot_region` | 区域截屏 | 局部分析 |
 
-## 文档
+### 智能工具（需要 AI，可选，共 4 个）
+| 工具 | 说明 | 使用场景 |
+|------|------|----------|
+| `mobile_smart_click` | 自然语言点击 | 平台自动化 |
+| `mobile_smart_input` | 自然语言输入 | 批量测试 |
+| `mobile_analyze_screenshot` | AI 分析截图 | 复杂场景 |
+| `mobile_get_ai_status` | 检查 AI 状态 | 调试配置 |
 
+### 通用工具（共 4 个）
+| 工具 | 说明 |
+|------|------|
+| `mobile_snapshot` | 获取页面结构 |
+| `mobile_launch_app` | 启动应用 |
+| `mobile_swipe` | 滑动屏幕 |
+| `mobile_press_key` | 按键操作 |
+
+**总计：17 个工具**
+
+## 📚 文档
+
+- [用户配置指南](docs/USER_CONFIGURATION_GUIDE.md) - AI 密钥配置、常见问题
 - [启动指南](docs/START_GUIDE.md) - 完整的安装和配置步骤
-- [使用指南](docs/INSTALL_AND_USE.md) - 详细的使用说明
-- [常见问题](docs/FAQ.md) - 常见问题解答和故障排除
-- [iOS 设置](docs/IOS_SETUP.md) - iOS 设备配置指南
+- [测试脚本生成](docs/如何生成测试脚本.md) - 如何生成 pytest 测试脚本
 
-## License
+## 🎯 使用场景选择
 
-Apache License 2.0
+### 个人使用 Cursor（推荐新手）
+- 只装基础版：`pip install mobile-mcp-ai`
+- 不配置 AI key
+- 通过 Cursor AI 使用（Cursor AI 自带视觉识别）
+- 💰 **完全免费**
 
-## 贡献
+### 平台开发（推荐开发者）
+- 装完整版：`pip install mobile-mcp-ai[ai]`
+- 配置 AI key
+- 可以脱离 Cursor 独立使用
+- 适合做自动化测试平台、CI/CD 集成
+- 💸 需要 AI API 费用
+
+## 🆕 v2.0.0 更新日志
+
+### 重大改进
+- ✨ AI 功能可选化：基础工具不需要 AI 密钥
+- 🚀 新增 3 个工具：截图、区域截图、AI 视觉识别
+- 📦 依赖优化：核心依赖最小化
+- 🏗️ 架构重构：分离基础工具和智能工具
+- 🐛 修复 AI 响应解析问题
+- 📝 完善用户文档
+
+### 向后兼容
+- ✅ 完全兼容之前的使用方式
+- ✅ 已配置 AI 的用户无需修改
+- ✅ 新用户可以选择不配置 AI
+
+## 📊 技术栈
+
+- **MCP 协议**：与 Cursor AI 无缝集成
+- **UIAutomator2**：Android 自动化引擎
+- **Appium**：iOS 自动化支持（可选）
+- **多 AI 支持**：通义千问、OpenAI、Claude（可选）
+
+## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
+
+有问题或建议？欢迎在 Issues 中反馈。
+
+## 📄 License
+
+Apache License 2.0
 
 ---
 
@@ -157,6 +271,8 @@ Apache License 2.0
 
 [![Gitee Stars](https://gitee.com/chang-xinping/mobile-automation-mcp-service/badge/star.svg?theme=dark)](https://gitee.com/chang-xinping/mobile-automation-mcp-service/stargazers)
 
-[Gitee 仓库](https://gitee.com/chang-xinping/mobile-automation-mcp-service) | [GitHub 仓库](https://github.com/test111ddff-hash/mobile-mcp-ai)
+[Gitee 仓库](https://gitee.com/chang-xinping/mobile-automation-mcp-service) | [GitHub 仓库](https://github.com/test111ddff-hash/mobile-mcp-ai) | [PyPI 发布](https://pypi.org/project/mobile-mcp-ai/)
+
+**让移动端测试更简单！** 🚀
 
 </div>
