@@ -10,7 +10,18 @@
 [![Gitee Stars](https://gitee.com/chang-xinping/mobile-automation-mcp-service/badge/star.svg?theme=white)](https://gitee.com/chang-xinping/mobile-automation-mcp-service)
 
 **⭐ 如果这个项目对你有帮助，请给个 Star 支持一下！⭐**
+
 </div>
+
+---
+
+## 🎬 演示视频
+
+![演示动图](docs/videos/demo.gif)
+
+> 💡 **提示**：上图为压缩版 GIF（5.3MB），查看高清完整版请下载 [demo.mp4](docs/videos/demo.mp4)（23MB）
+
+---
 
 ## ✨ 核心特性
 
@@ -103,7 +114,7 @@ pip show mobile-mcp-ai
 {
   "mcpServers": {
     "mobile-automation": {
-      "command": "python",
+      "command": "python", //当前项目python路径
       "args": ["-m", "mobile_mcp.mcp.mcp_server"],
       "cwd": "/path/to/your/project",
       "env": {}
