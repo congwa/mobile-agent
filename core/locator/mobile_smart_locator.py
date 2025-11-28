@@ -1,38 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-移动端SmartLocator适配器 - 复用现有SmartLocator逻辑
+移动端SmartLocator - 独立实现（无外部依赖）
 
 策略：
-1. Level 1: 规则匹配（免费，85%）
+1. Level 1: 规则匹配（免费，85%）- 独立实现
 2. Level 2: 缓存查询（免费，5%）
 3. Level 3: XML深度分析（免费，5%）
 4. Level 4: 视觉识别（付费，4%）
-5. Level 5: 文本AI分析（付费，1%）
+5. Level 5: 文本AI分析（付费，1%）- 使用 mobile_mcp 自己的 AI 模块
+
+注意：此模块已完全解耦，不依赖 browser_mcp
 """
 import hashlib
 import time
 from typing import Dict, Optional
-# 复用现有的SmartLocator（通过导入，不修改原代码）
 import sys
 from pathlib import Path as PathLib
 
-# 添加browser_mcp路径以便导入
-# mobile_mcp现在在backend/mobile_mcp，browser_mcp在backend/mind-ui/browser_mcp
-current_file = PathLib(__file__)
-# 从 backend/mobile_mcp/core/locator/mobile_smart_locator.py
-# 到 backend/mind-ui/browser_mcp
-# 路径: backend/mobile_mcp/core/locator -> backend/mind-ui
-mind_ui_path = current_file.parent.parent.parent.parent / 'mind-ui'
-if mind_ui_path.exists():
-    sys.path.insert(0, str(mind_ui_path))
-
-try:
-    from browser_mcp.core.locator.smart_locator import SmartLocator
-    SMART_LOCATOR_AVAILABLE = True
-except ImportError:
-    SMART_LOCATOR_AVAILABLE = False
-    print("⚠️  无法导入SmartLocator，将使用简化版本", file=sys.stderr)
+# 独立实现，不再依赖 browser_mcp
+SMART_LOCATOR_AVAILABLE = False  # 使用自己的规则匹配逻辑
 
 
 class MobileSmartLocator:
@@ -71,32 +58,8 @@ class MobileSmartLocator:
         # 性能监控
         self.performance_logs = []  # 详细性能日志
         
-        # 如果可用，复用现有SmartLocator
-        if SMART_LOCATOR_AVAILABLE:
-            # 创建适配器，让SmartLocator可以调用mobile_client的方法
-            self.smart_locator = SmartLocator(self._create_adapter())
-        else:
-            self.smart_locator = None
-    
-    def _create_adapter(self):
-        """创建适配器，让SmartLocator可以调用mobile_client的方法"""
-        class Adapter:
-            def __init__(self, mobile_client):
-                self.mobile_client = mobile_client
-            
-            async def snapshot(self):
-                # 返回格式化的字符串，SmartLocator的规则匹配器会调用extract_snapshot_content
-                # extract_snapshot_content会处理字符串类型
-                snapshot_str = await self.mobile_client.snapshot()
-                
-                # 包装成类似MCP CallToolResult的格式，以便兼容
-                class SnapshotResult:
-                    def __init__(self, text):
-                        self.content = [type('Content', (), {'text': text})()]
-                
-                return SnapshotResult(snapshot_str)
-        
-        return Adapter(self.mobile_client)
+        # 不再依赖外部 SmartLocator，使用独立实现
+        self.smart_locator = None
     
     async def locate(self, query: str, wait_for_popup: bool = True, max_wait: float = 3.0) -> Optional[Dict]:
         """
@@ -166,17 +129,16 @@ class MobileSmartLocator:
             self._log_performance(query, 'quick_match', elapsed_time, 1, xml_time)
             return quick_result
         
-        # Level 2: 规则匹配（如果SmartLocator可用）
-        if self.smart_locator:
-            rule_result = await self._try_rule_match(elements, query)
-            if rule_result:
-                self.stats['rule_hits'] += 1
-                elapsed_time = (time.time() - start_time) * 1000
-                self.stats['total_time'] += elapsed_time
-                print(f"  ✅ 规则匹配成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)", file=sys.stderr)
-                await self._cache_result(query, rule_result)
-                self._log_performance(query, 'rule_match', elapsed_time, 1, xml_time)
-                return rule_result
+        # Level 2: 移动端规则匹配（独立实现）
+        rule_result = await self._try_rule_match(elements, query)
+        if rule_result:
+            self.stats['rule_hits'] += 1
+            elapsed_time = (time.time() - start_time) * 1000
+            self.stats['total_time'] += elapsed_time
+            print(f"  ✅ 规则匹配成功！总耗时: {elapsed_time:.2f}ms (XML: {xml_time:.2f}ms)", file=sys.stderr)
+            await self._cache_result(query, rule_result)
+            self._log_performance(query, 'rule_match', elapsed_time, 1, xml_time)
+            return rule_result
         
         # Level 3: XML深度分析（免费，快速）
         xml_result, candidates = await self._try_xml_analysis(elements, query)
@@ -478,32 +440,203 @@ class MobileSmartLocator:
     
     async def _try_rule_match(self, elements: list, query: str) -> Optional[Dict]:
         """
-        尝试规则匹配（复用SmartLocator）
+        移动端规则匹配（独立实现，不依赖 browser_mcp）
+        
+        规则优先级：
+        1. 精确文本匹配
+        2. 同义词映射匹配
+        3. 类型+关键词匹配（如 EditText + 用户名）
+        4. 常见 UI 模式匹配
         
         Args:
-            elements: 已解析的元素列表（用于转换结果时复用）
+            elements: 已解析的元素列表
             query: 查询文本
         """
-        if not self.smart_locator:
-            return None
+        print(f"  📐 Level 2: 移动端规则匹配...", file=sys.stderr)
         
-        # ⚡ 同义词替换（规则匹配阶段）
-        query_processed = query
-        if "登陆" in query:
-            query_processed = query.replace("登陆", "登录")
-            print(f"  ⚡ 同义词替换（规则匹配）: '登陆' → '登录'", file=sys.stderr)
+        query_lower = query.lower().strip()
         
-        # 定义AI函数（用于降级，但这里先不调用）
-        async def ai_func(client, q: str):
-            return None  # 规则匹配阶段不调用AI
+        # ==================== 同义词映射 ====================
+        SYNONYMS = {
+            '登陆': '登录',
+            '登入': '登录',
+            'signin': '登录',
+            'login': '登录',
+            '注冊': '注册',
+            'signup': '注册',
+            'register': '注册',
+            '确认': '确定',
+            'ok': '确定',
+            'confirm': '确定',
+            '取消': '取消',
+            'cancel': '取消',
+            '关闭': '关闭',
+            'close': '关闭',
+            '搜索': '搜索',
+            'search': '搜索',
+            '发送': '发送',
+            'send': '发送',
+            '提交': '提交',
+            'submit': '提交',
+            '返回': '返回',
+            'back': '返回',
+            '下一步': '下一步',
+            'next': '下一步',
+            '上一步': '上一步',
+            'prev': '上一步',
+            '完成': '完成',
+            'done': '完成',
+            '保存': '保存',
+            'save': '保存',
+            '删除': '删除',
+            'delete': '删除',
+            '编辑': '编辑',
+            'edit': '编辑',
+            '添加': '添加',
+            'add': '添加',
+            '刷新': '刷新',
+            'refresh': '刷新',
+        }
         
-        # 调用SmartLocator，跳过AI
-        result = await self.smart_locator.locate(query_processed, ai_func=ai_func, skip_ai=True)
+        # 应用同义词映射
+        query_normalized = query_lower
+        for old, new in SYNONYMS.items():
+            if old in query_normalized:
+                query_normalized = query_normalized.replace(old, new)
+                print(f"    ⚡ 同义词替换: '{old}' → '{new}'", file=sys.stderr)
         
-        if result:
-            # 转换结果为移动端格式（传入elements避免重复读取XML）
-            return self._convert_result(result, query, elements)
+        # ==================== 常见按钮规则 ====================
+        BUTTON_RULES = {
+            '登录': ['登录', '登 录', 'Login', 'Sign in', '立即登录'],
+            '注册': ['注册', '注 册', 'Register', 'Sign up', '立即注册'],
+            '确定': ['确定', '确 定', 'OK', 'Confirm', '好的', '知道了'],
+            '取消': ['取消', 'Cancel', '算了'],
+            '关闭': ['关闭', 'Close', '×', 'X'],
+            '搜索': ['搜索', 'Search', '搜 索'],
+            '发送': ['发送', 'Send', '发 送'],
+            '提交': ['提交', 'Submit', '提 交'],
+            '下一步': ['下一步', 'Next', '继续', '下一步'],
+            '完成': ['完成', 'Done', 'Finish', '完 成'],
+            '保存': ['保存', 'Save', '保 存'],
+            '删除': ['删除', 'Delete', '移除', 'Remove'],
+            '添加': ['添加', 'Add', '新增', '+ '],
+            '刷新': ['刷新', 'Refresh', '重新加载'],
+            '分享': ['分享', 'Share', '分 享'],
+            '收藏': ['收藏', 'Favorite', '收 藏'],
+            '点赞': ['点赞', 'Like', '赞', '👍'],
+            '评论': ['评论', 'Comment', '评 论'],
+            '设置': ['设置', 'Settings', '设 置'],
+            '我的': ['我的', 'Mine', 'My', '个人中心'],
+            '首页': ['首页', 'Home', '主页'],
+            '消息': ['消息', 'Message', '通知'],
+        }
         
+        # ==================== 输入框规则 ====================
+        INPUT_RULES = {
+            '用户名': ['用户名', '账号', '账户', 'Username', 'Account'],
+            '密码': ['密码', 'Password', '口令'],
+            '手机': ['手机', '手机号', '电话', 'Phone', 'Mobile'],
+            '邮箱': ['邮箱', '邮件', 'Email', 'E-mail'],
+            '验证码': ['验证码', '验证', 'Code', 'Captcha'],
+            '搜索': ['搜索', 'Search', '搜一搜'],
+            '输入': ['输入', '请输入', 'Enter', 'Input'],
+        }
+        
+        # ==================== 规则匹配逻辑 ====================
+        
+        # 1. 检查是否是按钮/点击操作
+        is_click_action = any(kw in query_lower for kw in ['点击', '按', '点', 'click', 'tap', '按钮'])
+        
+        # 2. 检查是否是输入操作
+        is_input_action = any(kw in query_lower for kw in ['输入', '填写', '输入框', 'input', 'type', 'enter'])
+        
+        # 3. 尝试按钮规则匹配
+        for rule_key, rule_texts in BUTTON_RULES.items():
+            if rule_key in query_normalized:
+                # 在可点击元素中查找匹配
+                for elem in elements:
+                    if not (elem.get('clickable') or elem.get('focusable')):
+                        continue
+                    
+                    elem_text = elem.get('text', '').strip()
+                    elem_desc = elem.get('content_desc', '').strip()
+                    elem_id = elem.get('resource_id', '').lower()
+                    
+                    # 检查是否匹配规则文本
+                    for rule_text in rule_texts:
+                        if (rule_text.lower() in elem_text.lower() or 
+                            rule_text.lower() in elem_desc.lower() or
+                            rule_key in elem_id):
+                            print(f"    ✅ 按钮规则匹配: '{rule_key}' → '{elem_text or elem_desc}'", file=sys.stderr)
+                            return {
+                                'element': elem_text or elem_desc or rule_key,
+                                'ref': elem.get('bounds', ''),
+                                'confidence': 90,
+                                'method': 'rule_match_button'
+                            }
+        
+        # 4. 尝试输入框规则匹配
+        if is_input_action or '输入框' in query_lower:
+            for rule_key, rule_texts in INPUT_RULES.items():
+                if rule_key in query_normalized:
+                    # 在输入框元素中查找
+                    for elem in elements:
+                        class_name = elem.get('class_name', '')
+                        if 'EditText' not in class_name and 'TextField' not in class_name:
+                            continue
+                        
+                        elem_text = elem.get('text', '').strip()
+                        elem_desc = elem.get('content_desc', '').strip()
+                        elem_hint = elem.get('hint', '').strip()  # Android 输入框提示
+                        elem_id = elem.get('resource_id', '').lower()
+                        
+                        # 检查是否匹配规则文本
+                        for rule_text in rule_texts:
+                            if (rule_text.lower() in elem_text.lower() or 
+                                rule_text.lower() in elem_desc.lower() or
+                                rule_text.lower() in elem_hint.lower() or
+                                rule_key in elem_id):
+                                print(f"    ✅ 输入框规则匹配: '{rule_key}' → '{elem_text or elem_desc or elem_hint}'", file=sys.stderr)
+                                return {
+                                    'element': elem_text or elem_desc or elem_hint or rule_key,
+                                    'ref': elem.get('resource_id') or elem.get('bounds', ''),
+                                    'confidence': 90,
+                                    'method': 'rule_match_input'
+                                }
+        
+        # 5. 精确文本匹配（去除动作词后匹配）
+        action_words = ['点击', '按', '点', '输入', '填写', '选择', 'click', 'tap', 'enter', 'input', 'select']
+        clean_query = query_normalized
+        for word in action_words:
+            clean_query = clean_query.replace(word, '').strip()
+        
+        if clean_query:
+            for elem in elements:
+                if not (elem.get('clickable') or elem.get('focusable') or elem.get('enabled')):
+                    continue
+                
+                elem_text = elem.get('text', '').strip().lower()
+                elem_desc = elem.get('content_desc', '').strip().lower()
+                
+                # 精确匹配或包含匹配
+                if clean_query == elem_text or clean_query == elem_desc:
+                    print(f"    ✅ 精确文本匹配: '{clean_query}'", file=sys.stderr)
+                    return {
+                        'element': elem.get('text') or elem.get('content_desc'),
+                        'ref': elem.get('bounds', ''),
+                        'confidence': 95,
+                        'method': 'rule_match_exact'
+                    }
+                elif clean_query in elem_text or clean_query in elem_desc:
+                    print(f"    ✅ 包含文本匹配: '{clean_query}' in '{elem_text or elem_desc}'", file=sys.stderr)
+                    return {
+                        'element': elem.get('text') or elem.get('content_desc'),
+                        'ref': elem.get('bounds', ''),
+                        'confidence': 85,
+                        'method': 'rule_match_contains'
+                    }
+        
+        print(f"    ⚠️  规则匹配未命中", file=sys.stderr)
         return None
     
     async def _try_xml_analysis(self, elements: list, query: str):
@@ -1390,92 +1523,66 @@ class MobileSmartLocator:
         return None
     
     async def _try_ai_analysis(self, query: str, elements: list = None) -> Optional[Dict]:
-        """尝试文本AI分析（最后手段）- 使用AI分析移动端XML结构"""
+        """
+        尝试文本AI分析（最后手段）- 使用 mobile_mcp 独立的 AI 模块
+        
+        注意：此方法已解耦，不再依赖 browser_mcp，使用 mobile_mcp/core/ai/ai_analyzer.py
+        """
         print(f"  🤖 Level 4: 尝试AI分析...", file=sys.stderr)
         
         try:
-            # 加载根目录的.env配置
-            from pathlib import Path
-            import os
-            from dotenv import load_dotenv
+            # 导入 mobile_mcp 自己的 AI 模块
+            from ..ai.ai_analyzer import ai_analyzer
             
-            # 查找根目录的.env文件（从mobile_mcp向上查找）
-            current_dir = Path(__file__).parent
-            root_dir = current_dir.parent.parent.parent  # backend/mobile_mcp -> backend -> douzi-ai
-            env_file = root_dir / '.env'
+            # 检查 AI 是否配置
+            if not ai_analyzer.config.is_configured():
+                print(f"  ⚠️  AI未配置，跳过AI分析。请配置环境变量: AI_API_KEY", file=sys.stderr)
+                return None
             
-            if env_file.exists():
-                load_dotenv(env_file)
-                print(f"  ✅ 已加载.env配置: {env_file}", file=sys.stderr)
+            # 如果没有传入 elements，先获取
+            if elements is None:
+                xml_string = self.mobile_client.u2.dump_hierarchy()
+                elements = self.mobile_client.xml_parser.parse(xml_string)
+            
+            # 过滤出可交互元素作为候选
+            candidates = []
+            for elem in elements:
+                # 优先添加可点击元素和输入框
+                if elem.get('clickable') or elem.get('focusable') or \
+                   elem.get('class_name', '').endswith(('Button', 'EditText', 'TextView', 'ImageView')):
+                    # 必须有文本、描述或resource_id才能识别
+                    if elem.get('text') or elem.get('content_desc') or elem.get('resource_id'):
+                        candidates.append(elem)
+            
+            if not candidates:
+                print(f"  ⚠️  未找到可交互候选元素", file=sys.stderr)
+                return None
+            
+            # 限制候选数量，避免 token 过多
+            max_candidates = 20
+            if len(candidates) > max_candidates:
+                print(f"  📋 候选元素过多({len(candidates)})，筛选前{max_candidates}个", file=sys.stderr)
+                candidates = candidates[:max_candidates]
+            
+            print(f"  🤖 使用AI分析 (模型: {ai_analyzer.config.model})，候选元素: {len(candidates)}个", file=sys.stderr)
+            
+            # 调用 AI 分析
+            result = await ai_analyzer.analyze_candidates(query, candidates)
+            
+            if result:
+                print(f"  ✅ AI分析成功: {result.get('element', '')} (置信度: {result.get('confidence', 0)}%)", file=sys.stderr)
+                return result
             else:
-                # 尝试从当前目录向上查找
-                for parent in current_dir.parents:
-                    env_file = parent / '.env'
-                    if env_file.exists():
-                        load_dotenv(env_file)
-                        print(f"  ✅ 已加载.env配置: {env_file}", file=sys.stderr)
-                        break
-            
-            # 获取页面快照（格式化的XML结构）
-            snapshot = await self.mobile_client.snapshot()
-            
-            # 获取AI配置
-            try:
-                mind_ui_path = PathLib(__file__).parent.parent.parent.parent / 'mind-ui'
-                if str(mind_ui_path) not in sys.path:
-                    sys.path.insert(0, str(mind_ui_path))
-                
-                from browser_mcp.core.ai.api.api_client import optimize_with_ai_auto
-                from browser_mcp.core.ai.config.config import get_ai_config
-                
-                # 检查AI配置是否可用
-                ai_config = get_ai_config()
-                if ai_config.default_provider == "manual" or ai_config.is_manual_mode():
-                    print(f"  ⚠️  AI配置为手动模式，跳过AI分析", file=sys.stderr)
-                    return None
-                
-                print(f"  🤖 使用AI分析 (Provider: {ai_config.default_provider}, Model: {ai_config.default_model})", file=sys.stderr)
-                
-                # 创建适配器，让AI可以分析移动端页面
-                class MobileAdapter:
-                    async def snapshot(self):
-                        class SnapshotResult:
-                            def __init__(self, text):
-                                self.content = [type('Content', (), {'text': text})()]
-                        return SnapshotResult(snapshot)
-                
-                adapter = MobileAdapter()
-                
-                # 调用AI分析
-                result = await optimize_with_ai_auto(adapter, query)
-                
-                if result:
-                    print(f"  ✅ AI分析成功: {result.get('element', '')} (置信度: {result.get('confidence', 0)}%)", file=sys.stderr)
-                    # 转换结果为移动端格式，传入elements避免重复读取XML
-                    converted = self._convert_result(result, query, elements)
-                    if converted and converted.get('ref'):
-                        return converted
-                    else:
-                        print(f"  ⚠️  AI分析结果转换失败（无法在移动端XML中找到对应元素）", file=sys.stderr)
-                        return None
-                else:
-                    print(f"  ❌ AI分析未找到元素", file=sys.stderr)
-                    return None
-                    
-            except ImportError as e:
-                print(f"  ⚠️  无法导入AI模块: {e}", file=sys.stderr)
-                return None
-            except Exception as e:
-                print(f"  ⚠️  AI分析失败: {e}", file=sys.stderr)
-                import traceback
-                traceback.print_exc()
+                print(f"  ❌ AI分析未找到匹配元素", file=sys.stderr)
                 return None
                 
-        except ImportError:
-            print(f"  ⚠️  未安装python-dotenv，无法加载.env配置", file=sys.stderr)
+        except ImportError as e:
+            print(f"  ⚠️  无法导入AI模块: {e}", file=sys.stderr)
             return None
         except Exception as e:
             print(f"  ⚠️  AI分析异常: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
             return None
     
     def _convert_result(self, result: Dict, query: str = "", elements: list = None) -> Dict:

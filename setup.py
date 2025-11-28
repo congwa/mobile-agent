@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.1.2",  # 修复：屏幕方向锁定 + 改进自动关闭广告逻辑
+    version="2.2.4",  # 重要修复：修复click()返回值判断bug，点击成功却误报"文本不存在"
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
@@ -37,7 +37,20 @@ setup(
         "Source": "https://github.com/test111ddff-hash/mobile-mcp-ai",
         "Tracker": "https://github.com/test111ddff-hash/mobile-mcp-ai/issues",
     },
-    packages=find_packages(exclude=['tests', 'tests.*', 'examples', 'examples.*']),
+    # 明确列出所有包，确保在 mobile_mcp 命名空间下
+    packages=[
+        'mobile_mcp',
+        'mobile_mcp.core',
+        'mobile_mcp.core.ai',
+        'mobile_mcp.core.assertion',
+        'mobile_mcp.core.h5',
+        'mobile_mcp.core.locator',
+        'mobile_mcp.core.utils',
+        'mobile_mcp.mcp',
+        'mobile_mcp.utils',
+        'mobile_mcp.vision',
+    ],
+    # 将 mobile_mcp 映射到当前目录
     package_dir={'mobile_mcp': '.'},
     classifiers=[
         "Development Status :: 4 - Beta",

@@ -108,31 +108,68 @@ pip show mobile-mcp-ai
 
 编辑 `~/.cursor/mcp.json`（macOS/Linux）或 `%APPDATA%\Cursor\mcp.json`（Windows）：
 
-**基础模式（推荐，默认使用 Cursor AI，完全免费）**：
+**⭐ 推荐配置（完整版，35 个工具）**：
 ```json
 {
   "mcpServers": {
     "mobile-automation": {
-      "command": "python", //当前项目python路径
-      "args": ["-m", "mobile_mcp.mcp.mcp_server_simple"],
+      "command": "python",
+      "args": ["-m", "mobile_mcp.mcp.mcp_server"],
+      "cwd": "/path/to/your/project",
       "env": {}
     }
   }
 }
 ```
 
-> 🎯 **默认行为**：
-> - ✅ 在 Cursor 中运行时，**自动使用 Cursor AI**（免费，无需配置）
-> - ✅ 智能定位、视觉识别等 AI 功能开箱即用
-> - ✅ 不会消耗你的 API 额度，完全零成本
+> ✨ **完整版特性**（不需要 AI Key）：
+> - ✅ 35 个自动化工具（比简化版多 5 个）
+> - ✅ `mobile_generate_test_script` - 生成 pytest 测试脚本
+> - ✅ `mobile_execute_test_case` - 执行 pytest 测试用例
+> - ✅ `mobile_configure` - 动态调整等待时间、重试策略
+> - ✅ `mobile_get_config` - 查看当前配置
+> - ✅ `mobile_wait` - 明确等待指定秒数
 
-**智能模式（可选，使用其他 AI 平台）**：
+<details>
+<summary>📦 简化版配置（30 个工具，轻量场景）</summary>
+
 ```json
 {
   "mcpServers": {
     "mobile-automation": {
       "command": "python",
       "args": ["-m", "mobile_mcp.mcp.mcp_server_simple"],
+      "cwd": "/path/to/your/project",
+      "env": {}
+    }
+  }
+}
+```
+
+> ⚠️ 简化版不包含测试脚本生成、动态配置等高级功能。
+
+</details>
+
+> 🎯 **默认行为**：
+> - ✅ 在 Cursor 中运行时，**自动使用 Cursor AI**（免费，无需配置）
+> - ✅ 智能定位、视觉识别等 AI 功能开箱即用
+> - ✅ 不会消耗你的 API 额度，完全零成本
+> 
+> ⚙️ **工作区配置**（重要）：
+> - `"cwd"`: 设置为你的项目根目录路径
+> - 生成的测试脚本会保存到 `项目目录/tests/`
+> - 如果不配置，脚本会生成到用户主目录（不推荐）
+
+---
+
+**智能模式配置（可选，使用其他 AI 平台）**：
+```json
+{
+  "mcpServers": {
+    "mobile-automation": {
+      "command": "python",
+      "args": ["-m", "mobile_mcp.mcp.mcp_server"],
+      "cwd": "/path/to/your/project",
       "env": {
         "AI_PROVIDER": "qwen",
         "QWEN_API_KEY": "sk-your-api-key"
@@ -403,6 +440,7 @@ await press_key("back", verify=False)
 - [用户配置指南](docs/USER_CONFIGURATION_GUIDE.md) - AI 密钥配置、常见问题
 - [启动指南](docs/START_GUIDE.md) - 完整的安装和配置步骤
 - [测试脚本生成](docs/如何生成测试脚本.md) - 如何生成 pytest 测试脚本
+- [自动化行为配置说明](docs/自动化行为配置说明.md) - 控制屏幕方向和自动关闭广告
 
 ## 🎯 使用场景选择
 

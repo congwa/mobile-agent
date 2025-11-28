@@ -90,12 +90,12 @@ class AIConfig:
         return bool(self.api_key)
     
     def __repr__(self):
-        """字符串表示"""
+        """字符串表示（安全：不显示 API Key 信息）"""
         return (
             f"AIConfig(\n"
             f"  api_base={self.api_base}\n"
             f"  model={self.model}\n"
-            f"  api_key={'***' + self.api_key[-4:] if self.api_key else 'None'}\n"
+            f"  api_key_configured={'✅ Yes' if self.api_key else '❌ No'}\n"
             f"  timeout={self.timeout}s\n"
             f")"
         )

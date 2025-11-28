@@ -23,6 +23,7 @@ from .device_manager import DeviceManager
 from ..utils.xml_parser import XMLParser
 from ..utils.xml_formatter import XMLFormatter
 from .utils.smart_wait import SmartWait
+from .dynamic_config import DynamicConfig
 
 
 class MobileClient:
@@ -42,7 +43,7 @@ class MobileClient:
         Args:
             device_id: 设备ID，None则自动选择第一个设备
             platform: 平台类型 ("android" 或 "ios")
-            lock_orientation: 是否锁定屏幕方向（默认True，仅Android有效）
+            lock_orientation: 是否锁定屏幕方向为竖屏（默认True，仅Android有效）
         """
         self.platform = platform
         
@@ -72,8 +73,8 @@ class MobileClient:
         # 操作历史（用于录制）
         self.operation_history: List[Dict] = []
         
-        # 🎯 锁定屏幕方向（防止测试过程中屏幕旋转）
-        if lock_orientation:
+        # 🎯 锁定屏幕方向为竖屏（防止测试过程中屏幕旋转）
+        if lock_orientation and platform == "android":
             self._lock_screen_orientation()
     
     def _lock_screen_orientation(self):
@@ -82,7 +83,6 @@ class MobileClient:
             import subprocess
             device_id = self.device_manager.current_device_id
             
-            # 🎯 强制旋转回竖屏（如果当前是横屏）
             # 先禁用自动旋转
             subprocess.run(
                 ['adb', '-s', device_id, 'shell', 'settings', 'put', 'system', 'accelerometer_rotation', '0'],
@@ -100,14 +100,6 @@ class MobileClient:
             # 等待旋转完成
             import time
             time.sleep(0.5)
-            
-            # 验证当前方向
-            check_result = subprocess.run(
-                ['adb', '-s', device_id, 'shell', 'dumpsys', 'window', '|', 'grep', 'mCurrentRotation'],
-                capture_output=True,
-                timeout=5,
-                shell=True
-            )
             
             if result.returncode == 0:
                 print(f"  🔒 已锁定屏幕方向为竖屏", file=sys.stderr)
@@ -744,28 +736,39 @@ class MobileClient:
     
     async def launch_app(self, package_name: str, wait_time: int = 3, smart_wait: bool = True):
         """
-        启动App
+        启动App（快速模式：最多等待3秒+截图验证）
         
         Args:
             package_name: App包名（如 "com.example.app"）
-            wait_time: 等待App启动的时间（秒）- 仅在smart_wait=False时使用
-            smart_wait: 是否启用智能等待（自动关闭广告、等待主页加载）
+            wait_time: 等待App启动的时间（秒）- 默认3秒
+            smart_wait: 是否启用智能等待（自动关闭广告、截图验证）
             
         Returns:
-            操作结果
+            操作结果（包含screenshot_path字段供AI验证）
         """
         try:
             # 🎯 优先使用智能启动（推荐）
             if smart_wait:
                 from .smart_app_launcher import SmartAppLauncher
                 launcher = SmartAppLauncher(self)
-                # 优化：默认5秒，最多不超过8秒
-                smart_wait_time = min(max(5, wait_time), 8)
+                # 优化：快速模式，最多3秒
+                smart_wait_time = min(wait_time, 3)
+                
+                # 🎯 从环境变量读取是否自动关闭广告（默认True）
+                import os
+                auto_close_ads = os.environ.get('AUTO_CLOSE_ADS', 'true').lower() in ['true', '1', 'yes']
+                
                 result = await launcher.launch_with_smart_wait(
                     package_name,
                     max_wait=smart_wait_time,
-                    auto_close_ads=True
+                    auto_close_ads=auto_close_ads
                 )
+                
+                # 打印截图路径（供Cursor AI查看验证）
+                if result.get('screenshot_path'):
+                    print(f"\n📸 启动截图已保存: {result['screenshot_path']}", file=sys.stderr)
+                    print(f"💡 提示: 请查看截图确认App是否已正确进入主页", file=sys.stderr)
+                
                 return result
             
             # 传统方式（快速启动，不等待加载）
@@ -1032,18 +1035,24 @@ class MobileClient:
             print(f"  ❌ 搜索键执行失败: {e}", file=sys.stderr)
             return {"success": False, "reason": str(e)}
     
-    async def _verify_page_change(self, initial_length: int, timeout: float = 2.0, change_threshold: float = 0.05) -> bool:
+    async def _verify_page_change(self, initial_length: int, timeout: float = None, change_threshold: float = None) -> bool:
         """
         验证页面是否发生变化
         
         Args:
             initial_length: 初始页面XML长度
-            timeout: 最大等待时间（秒）
-            change_threshold: 变化阈值（百分比，默认5%）
+            timeout: 最大等待时间（秒），None则使用动态配置
+            change_threshold: 变化阈值（百分比），None则使用动态配置
         
         Returns:
             页面是否发生了明显变化
         """
+        # 使用动态配置（支持AI调整）
+        if timeout is None:
+            timeout = DynamicConfig.page_change_timeout
+        if change_threshold is None:
+            change_threshold = DynamicConfig.page_change_threshold
+        
         start_time = time.time()
         
         while time.time() - start_time < timeout:
@@ -1058,8 +1067,9 @@ class MobileClient:
                 
                 if change_percent > change_threshold:
                     print(f"  📊 页面变化检测: {change_percent*100:.1f}% (阈值: {change_threshold*100}%)", file=sys.stderr)
-                    # 等待页面稳定
-                    await asyncio.sleep(0.3)
+                    # 等待页面稳定（使用动态配置）
+                    await asyncio.sleep(DynamicConfig.wait_page_stable)
+                    print(f"  ⏳ 已等待页面稳定 {DynamicConfig.wait_page_stable}秒", file=sys.stderr)
                     return True
             except Exception as e:
                 print(f"  ⚠️  页面变化检测异常: {e}", file=sys.stderr)

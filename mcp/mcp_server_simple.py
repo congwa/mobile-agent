@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Mobile MCP Server（重构版）- AI 可选
+Mobile MCP Server - 统一版本（合并了基础工具和智能工具）
 
 架构说明：
-- 基础工具：不需要 AI 密钥，提供精确的元素操作
+- 基础工具：不需要 AI 密钥，提供精确的元素操作（设备管理、应用管理、高级交互等）
 - 智能工具：需要 AI 密钥（可选），提供自然语言定位
 
 用户可以选择：
 1. 只用基础工具 → 不需要配置 AI
 2. 启用智能功能 → 需要配置 AI（创建 .env 文件）
+
+v2.2.0: 合并了两个 MCP Server，移除了 browser_mcp 依赖
 """
 
 import asyncio
@@ -34,7 +36,7 @@ from mobile_mcp.core.basic_tools import BasicMobileTools
 from mobile_mcp.core.smart_tools import SmartMobileTools
 
 
-class SimpleMobileMCPServer:
+class MobileMCPServer:
     """简化的 Mobile MCP Server"""
     
     def __init__(self):
@@ -216,6 +218,185 @@ class SimpleMobileMCPServer:
                         }
                     },
                     "required": ["x1", "y1", "x2", "y2"]
+                }
+            ),
+            # ==================== 设备管理工具 ====================
+            Tool(
+                name="mobile_list_devices",
+                description="📱 列出所有已连接的Android设备（不需要 AI）。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            ),
+            Tool(
+                name="mobile_get_screen_size",
+                description="📐 获取设备屏幕尺寸（不需要 AI）。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            ),
+            Tool(
+                name="mobile_get_orientation",
+                description="🔄 获取当前屏幕方向（portrait/landscape）。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            ),
+            Tool(
+                name="mobile_set_orientation",
+                description="🔄 设置屏幕方向。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "orientation": {
+                            "type": "string",
+                            "enum": ["portrait", "landscape"],
+                            "description": "屏幕方向：portrait(竖屏) 或 landscape(横屏)"
+                        }
+                    },
+                    "required": ["orientation"]
+                }
+            ),
+            # ==================== 应用管理工具 ====================
+            Tool(
+                name="mobile_list_apps",
+                description="📦 列出设备上已安装的应用（不需要 AI）。可按关键词过滤。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "filter": {
+                            "type": "string",
+                            "description": "过滤关键词（可选），如包名的一部分"
+                        }
+                    },
+                    "required": []
+                }
+            ),
+            Tool(
+                name="mobile_install_app",
+                description="📲 安装APK文件（不需要 AI）。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "apk_path": {
+                            "type": "string",
+                            "description": "APK文件路径"
+                        }
+                    },
+                    "required": ["apk_path"]
+                }
+            ),
+            Tool(
+                name="mobile_uninstall_app",
+                description="🗑️ 卸载应用（不需要 AI）。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "package_name": {
+                            "type": "string",
+                            "description": "应用包名，如 'com.example.app'"
+                        }
+                    },
+                    "required": ["package_name"]
+                }
+            ),
+            Tool(
+                name="mobile_terminate_app",
+                description="⏹️ 终止应用（强制停止）。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "package_name": {
+                            "type": "string",
+                            "description": "应用包名，如 'com.example.app'"
+                        }
+                    },
+                    "required": ["package_name"]
+                }
+            ),
+            Tool(
+                name="mobile_get_current_package",
+                description="📍 获取当前前台应用的包名。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            ),
+            # ==================== 高级交互工具 ====================
+            Tool(
+                name="mobile_double_click",
+                description="👆👆 双击屏幕上的元素（不需要 AI）。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "x": {
+                            "type": "number",
+                            "description": "X坐标"
+                        },
+                        "y": {
+                            "type": "number",
+                            "description": "Y坐标"
+                        }
+                    },
+                    "required": ["x", "y"]
+                }
+            ),
+            Tool(
+                name="mobile_long_press",
+                description="👆⏱️ 长按屏幕上的元素。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "x": {
+                            "type": "number",
+                            "description": "X坐标"
+                        },
+                        "y": {
+                            "type": "number",
+                            "description": "Y坐标"
+                        },
+                        "duration": {
+                            "type": "number",
+                            "default": 1.0,
+                            "description": "长按时长（秒），默认1秒"
+                        }
+                    },
+                    "required": ["x", "y"]
+                }
+            ),
+            Tool(
+                name="mobile_open_url",
+                description="🌐 在设备浏览器中打开URL。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "要打开的URL，如 'https://example.com'"
+                        }
+                    },
+                    "required": ["url"]
+                }
+            ),
+            Tool(
+                name="mobile_assert_text",
+                description="✅ 断言页面中是否包含指定文本。用于验证操作结果。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "要检查的文本内容"
+                        }
+                    },
+                    "required": ["text"]
                 }
             ),
         ])
@@ -402,6 +583,67 @@ class SimpleMobileMCPServer:
                 )
                 return [TextContent(type="text", text=str(result))]
             
+            # ==================== 设备管理工具 ====================
+            elif name == "mobile_list_devices":
+                result = self.basic_tools.list_devices()
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_get_screen_size":
+                result = self.basic_tools.get_screen_size()
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_get_orientation":
+                result = self.basic_tools.get_orientation()
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_set_orientation":
+                result = self.basic_tools.set_orientation(arguments["orientation"])
+                return [TextContent(type="text", text=str(result))]
+            
+            # ==================== 应用管理工具 ====================
+            elif name == "mobile_list_apps":
+                filter_keyword = arguments.get("filter", "")
+                result = self.basic_tools.list_apps(filter_keyword)
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_install_app":
+                result = self.basic_tools.install_app(arguments["apk_path"])
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_uninstall_app":
+                result = self.basic_tools.uninstall_app(arguments["package_name"])
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_terminate_app":
+                result = self.basic_tools.terminate_app(arguments["package_name"])
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_get_current_package":
+                result = self.basic_tools.get_current_package()
+                return [TextContent(type="text", text=str(result))]
+            
+            # ==================== 高级交互工具 ====================
+            elif name == "mobile_double_click":
+                result = self.basic_tools.double_click_at_coords(
+                    int(arguments["x"]), int(arguments["y"])
+                )
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_long_press":
+                duration = arguments.get("duration", 1.0)
+                result = self.basic_tools.long_press_at_coords(
+                    int(arguments["x"]), int(arguments["y"]), duration
+                )
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_open_url":
+                result = self.basic_tools.open_url(arguments["url"])
+                return [TextContent(type="text", text=str(result))]
+            
+            elif name == "mobile_assert_text":
+                result = self.basic_tools.assert_text(arguments["text"])
+                return [TextContent(type="text", text=str(result))]
+            
             # ==================== 智能工具 ====================
             elif name == "mobile_smart_click":
                 result = await self.smart_tools.smart_click(arguments["description"])
@@ -452,8 +694,8 @@ class SimpleMobileMCPServer:
 
 async def main():
     """启动 MCP Server"""
-    server = SimpleMobileMCPServer()
-    mcp_server = Server("mobile-mcp-simplified")
+    server = MobileMCPServer()
+    mcp_server = Server("mobile-mcp")
     
     @mcp_server.list_tools()
     async def list_tools():
@@ -463,7 +705,7 @@ async def main():
     async def call_tool(name: str, arguments: dict):
         return await server.handle_tool_call(name, arguments)
     
-    print("🚀 Mobile MCP Server (简化版) 启动中...", file=sys.stderr)
+    print("🚀 Mobile MCP Server v2.2.0 启动中...", file=sys.stderr)
     print("📋 基础工具：总是可用（不需要 AI）", file=sys.stderr)
     print("🤖 智能工具：需要配置 AI 密钥（可选）", file=sys.stderr)
     

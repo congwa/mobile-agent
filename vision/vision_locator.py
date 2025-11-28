@@ -85,9 +85,10 @@ class MobileVisionLocator:
         )
         
         if api_key:
-            print(f"  ✅ 已读取API Key（长度: {len(api_key)}）")
+            # 安全提示：不打印 API Key 相关信息，避免日志泄露
+            print(f"  ✅ 已读取视觉识别API配置")
         else:
-            print(f"  ⚠️  未找到API Key，检查的环境变量: DASHSCOPE_API_KEY, QWEN_API_KEY, ALIBABA_CLOUD_API_KEY")
+            print(f"  ⚠️  未找到视觉识别API Key，请配置环境变量: DASHSCOPE_API_KEY")
         
         return api_key
     
