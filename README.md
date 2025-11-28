@@ -31,65 +31,43 @@
 - **零成本起步**：基础工具完全免费，无需额外 AI API 费用
 - **灵活选择**：根据使用场景自由选择是否启用 AI 功能
 
-### 🧪 智能测试脚本生成（v2.0.3 新增）
-- **操作录制**：AI 操作手机时自动记录所有步骤
-- **一键生成**：生成独立的 pytest 测试脚本
-- **智能等待**：自动添加页面加载、跳转等待逻辑
-- **弹窗处理**：智能检测和跳过可选弹窗
-- **开箱即用**：生成的脚本只依赖 uiautomator2，无需 mobile-mcp-ai
-
-### 📦 工具架构
-
-#### 基础工具（9个，不需要 AI）
-- `mobile_list_elements` - 列出所有可交互元素
-- `mobile_click_by_id` - 通过 resource-id 精确点击
-- `mobile_click_by_text` - 通过文本内容点击
-- `mobile_click_at_coords` - 点击指定坐标
-- `mobile_input_text_by_id` - 在输入框输入文本
-- `mobile_find_elements_by_class` - 按类名查找元素
-- `mobile_wait_for_element` - 等待元素出现
-- `mobile_take_screenshot` - 截取屏幕（支持 Cursor AI 视觉识别）
-- `mobile_take_screenshot_region` - 区域截图
-
-#### 智能工具（4个，需要 AI，可选）
-- `mobile_smart_click` - 自然语言智能点击
-- `mobile_smart_input` - 自然语言智能输入
-- `mobile_analyze_screenshot` - AI 视觉识别定位
-- `mobile_get_ai_status` - 检查 AI 功能状态
-
-#### 测试工具（1个，不需要 AI）✨ 新增
-- `mobile_generate_test_script` - 生成 pytest 测试脚本
-
-#### 通用工具（4个）
-- `mobile_snapshot` - 获取页面结构
-- `mobile_launch_app` - 启动应用
-- `mobile_swipe` - 滑动屏幕
-- `mobile_press_key` - 按键操作（支持智能验证 ✨ 新增）
-
-### 🌐 跨平台支持
-- **双平台支持**：完美支持 Android 和 iOS
-- **统一接口**：通过适配器模式实现代码复用
-- **设备管理**：自动检测和管理连接的设备
+### 📦 工具特性
+- **39个工具**：涵盖元素操作、设备管理、测试生成等
+- **操作录制**：自动记录操作，一键生成 pytest 测试脚本
+- **双平台支持**：Android 和 iOS 统一接口
+- **智能验证**：按键操作自动验证是否生效
 
 ### 🤖 与 Cursor AI 深度集成
 - **MCP 协议**：基于 Model Context Protocol，无缝集成
-- **18 个工具**：丰富的移动端操作工具
+- **39 个工具**：丰富的移动端操作工具（完整版）
 - **视觉识别**：Cursor AI 可以直接分析截图并操作
 - **测试生成**：AI 操作后一键生成 pytest 脚本
 
 ## 📦 安装
 
-### 基础安装（推荐）
+### 基础安装（推荐，Cursor 用户首选）
 ```bash
-# 不需要 AI 密钥，完全免费
+# 只包含核心依赖，Cursor AI 提供所有智能能力
 pip install mobile-mcp-ai
 ```
 
-### 完整安装（可选）
+**✅ 适用场景：**
+- 在 Cursor 中使用（最常见）
+- 使用 32 个基础工具即可
+- 不需要额外的 AI API 密钥
+
+### 完整安装（构建自动化平台）
 ```bash
-# 如果需要智能工具或构建自动化平台
+# 额外安装 AI SDK：通义千问、OpenAI、Claude
 pip install mobile-mcp-ai[ai]
 ```
+
+**✅ 适用场景：**
+- 构建独立的自动化测试平台
+- 在 CI/CD 中使用智能工具
+- 需要脱离 Cursor 独立运行
+
+> 💡 **区别说明**：基础版不包含 `dashscope`、`openai`、`anthropic` 等 AI SDK，在 Cursor 中使用时完全够用（Cursor AI 提供智能能力）。只有需要在独立环境中运行智能工具时，才需要完整安装。
 
 ### 升级到最新版本
 
@@ -109,83 +87,28 @@ pip show mobile-mcp-ai
 
 编辑 `~/.cursor/mcp.json`（macOS/Linux）或 `%APPDATA%\Cursor\mcp.json`（Windows）：
 
-**⭐ 推荐配置（完整版，35 个工具）**：
-```json
-{
-  "mcpServers": {
-    "mobile-automation": {
-      "command": "python", //当前项目python路径
-      "args": ["-m", "mobile_mcp.mcp.mcp_server"],
-      "cwd": "/path/to/your/project",
-      "env": {}
-    }
-  }
-}
-```
-
-> ✨ **完整版特性**（不需要 AI Key）：
-> - ✅ 35 个自动化工具（比简化版多 5 个）
-> - ✅ `mobile_generate_test_script` - 生成 pytest 测试脚本
-> - ✅ `mobile_execute_test_case` - 执行 pytest 测试用例
-> - ✅ `mobile_configure` - 动态调整等待时间、重试策略
-> - ✅ `mobile_get_config` - 查看当前配置
-> - ✅ `mobile_wait` - 明确等待指定秒数
-
-<details>
-<summary>📦 简化版配置（30 个工具，轻量场景）</summary>
-
-```json
-{
-  "mcpServers": {
-    "mobile-automation": {
-      "command": "python",
-      "args": ["-m", "mobile_mcp.mcp.mcp_server_simple"],
-      "cwd": "/path/to/your/project",
-      "env": {}
-    }
-  }
-}
-```
-
-> ⚠️ 简化版不包含测试脚本生成、动态配置等高级功能。
-
-</details>
-
-> 🎯 **默认行为**：
-> - ✅ 在 Cursor 中运行时，**自动使用 Cursor AI**（免费，无需配置）
-> - ✅ 智能定位、视觉识别等 AI 功能开箱即用
-> - ✅ 不会消耗你的 API 额度，完全零成本
-> 
-> ⚙️ **工作区配置**（重要）：
-> - `"cwd"`: 设置为你的项目根目录路径
-> - 生成的测试脚本会保存到 `项目目录/tests/`
-> - 如果不配置，脚本会生成到用户主目录（不推荐）
-
----
-
-**智能模式配置（可选，使用其他 AI 平台）**：
 ```json
 {
   "mcpServers": {
     "mobile-automation": {
       "command": "python",
       "args": ["-m", "mobile_mcp.mcp.mcp_server"],
-      "cwd": "/path/to/your/project",
-      "env": {
-        "AI_PROVIDER": "qwen",
-        "QWEN_API_KEY": "sk-your-api-key"
-      }
+      "cwd": "/path/to/your/project"
     }
   }
 }
 ```
 
-> 💡 **提示**：只有在以下情况才需要配置 AI 密钥：
-> - 想使用通义千问、Claude、OpenAI 等其他 AI 平台
-> - 构建独立的自动化测试平台（非 Cursor 环境）
-> - 需要离线运行或集成到 CI/CD
+> 💡 **模式切换**（可选）：
+> - **默认完整版（39工具）**：包含测试脚本生成、操作历史、动态配置等 ⭐ **推荐**
+> - **简化版（32工具）**：添加 `"env": {"MOBILE_MCP_MODE": "simple"}`
+>   - ⚠️ 简化版**不支持**测试脚本生成（`mobile_generate_test_script`）
+>   - 适合只需要基础操作的场景
 
-详细配置说明：[用户配置指南](docs/USER_CONFIGURATION_GUIDE.md)
+> 📝 **配置说明**：
+> - `"cwd"`: 项目根目录，测试脚本会保存到此目录的 `tests/` 下
+> - AI功能：Cursor 会自动使用内置 AI，无需额外配置
+> - 其他 AI 平台：需要时参考 [配置指南](docs/USER_CONFIGURATION_GUIDE.md)
 
 ### 2. 连接设备
 
@@ -292,43 +215,50 @@ def test_登录(device):
     assert d(text="首页").exists()
 ```
 
-## 🛠️ 工具列表
+## 🛠️ 工具列表概览
 
-### 基础工具（不需要 AI，共 9 个）
-| 工具 | 说明 | 示例 |
-|------|------|------|
-| `mobile_list_elements` | 列出所有可交互元素 | 显示 resource_id, text, bounds |
-| `mobile_click_by_id` | 通过 resource-id 点击 | 精确可靠 |
-| `mobile_click_by_text` | 通过文本点击 | 文本完全匹配 |
-| `mobile_click_at_coords` | 点击坐标 | 配合截图分析使用 |
-| `mobile_input_text_by_id` | 输入文本 | 通过 resource-id |
-| `mobile_find_elements_by_class` | 按类名查找 | 如 EditText |
-| `mobile_wait_for_element` | 等待元素出现 | 等待页面加载 |
-| `mobile_take_screenshot` | 截屏 | 供 Cursor AI 视觉识别 |
-| `mobile_take_screenshot_region` | 区域截屏 | 局部分析 |
+### 📊 工具分类统计
 
-### 智能工具（需要 AI，可选，共 4 个）
-| 工具 | 说明 | 使用场景 |
-|------|------|----------|
-| `mobile_smart_click` | 自然语言点击 | 平台自动化 |
-| `mobile_smart_input` | 自然语言输入 | 批量测试 |
-| `mobile_analyze_screenshot` | AI 分析截图 | 复杂场景 |
-| `mobile_get_ai_status` | 检查 AI 状态 | 调试配置 |
+| 分类 | 完整版 | 简化版 | 说明 |
+|------|--------|--------|------|
+| 基础工具 | 10 | 9 | 元素操作、截图等，不需要 AI |
+| 设备管理 | 6 | 6 | 设备列表、屏幕尺寸、方向、连接管理 |
+| 应用管理 | 5 | 5 | 安装、卸载、启动、终止应用 |
+| 高级交互 | 4 | 4 | 双击、长按、URL打开、断言 |
+| 智能工具 | 6 | 4 | 智能定位、测试执行、脚本生成 |
+| 操作历史 | 2 | 0 | 查看和清空操作历史记录 |
+| 通用工具 | 4 | 4 | 快照、启动、按键、滑动 |
+| 动态配置 | 2 | 0 | 运行时配置调整 |
+| **总计** | **39** | **32** | |
 
-### 测试工具（不需要 AI，共 1 个）✨ 新增
-| 工具 | 说明 | 特点 |
-|------|------|------|
-| `mobile_generate_test_script` | 生成 pytest 测试脚本 | 智能等待、弹窗处理、独立运行 |
+### 🔥 常用工具速览
 
-### 通用工具（共 4 个）
-| 工具 | 说明 |
-|------|------|
-| `mobile_snapshot` | 获取页面结构 |
-| `mobile_launch_app` | 启动应用 |
-| `mobile_swipe` | 滑动屏幕 |
-| `mobile_press_key` | 按键操作（支持智能验证 ✨ 新增）|
+#### 基础操作（不需要 AI）
+- `mobile_list_elements` - 列出所有可交互元素
+- `mobile_click_by_id` / `mobile_click_by_text` - 精确点击
+- `mobile_input_text_by_id` - 输入文本
+- `mobile_take_screenshot` - 截图（供 Cursor AI 分析）
+- `mobile_wait` - 等待指定时间或元素 ⭐ 完整版独有
+- `mobile_wait_for_element` - 等待元素出现
 
-**总计：18 个工具**
+#### 智能操作（需要 AI，可选）
+- `mobile_smart_click` - 自然语言智能点击
+- `mobile_smart_input` - 自然语言智能输入
+- `mobile_analyze_screenshot` - AI 视觉分析
+- `mobile_execute_test_case` - 智能执行测试 ⭐ 完整版独有
+- `mobile_generate_test_script` - 生成 pytest 脚本 ⭐ 完整版独有
+
+#### 设备与应用管理
+- `mobile_list_devices` - 列出连接的设备
+- `mobile_launch_app` - 启动应用
+- `mobile_list_apps` - 列出已安装应用
+- `mobile_get_screen_size` - 获取屏幕尺寸
+
+#### 动态配置 ⭐ 完整版独有
+- `mobile_configure` - 调整等待时间、验证策略等
+- `mobile_get_config` - 查看当前配置
+
+> 📋 **新增工具**：设备连接管理（check_connection, reconnect_device）、操作历史管理（get_operation_history, clear_operation_history）
 
 ## 🎯 智能验证功能详解
 
@@ -443,52 +373,16 @@ await press_key("back", verify=False)
 - [测试脚本生成](docs/如何生成测试脚本.md) - 如何生成 pytest 测试脚本
 - [自动化行为配置说明](docs/自动化行为配置说明.md) - 控制屏幕方向和自动关闭广告
 
-## 🎯 使用场景选择
-
-### 个人使用 Cursor（推荐新手）
-- 只装基础版：`pip install mobile-mcp-ai`
-- 不配置 AI key
-- 通过 Cursor AI 使用（Cursor AI 自带视觉识别）
-- 💰 **完全免费**
-
-### 平台开发（推荐开发者）
-- 装完整版：`pip install mobile-mcp-ai[ai]`
-- 配置 AI key
-- 可以脱离 Cursor 独立使用
-- 适合做自动化测试平台、CI/CD 集成
-- 💸 需要 AI API 费用
-
 ## 🆕 更新日志
 
-### v2.0.3 (最新)
-- ✨ **测试脚本生成**：AI 操作后一键生成 pytest 脚本
-- ⏱️ **智能等待优化**：从固定 3 秒改为智能检测页面稳定（2-8秒）
-- 🎯 **弹窗智能处理**：自动检测和跳过可选弹窗，避免测试失败
-- 📱 **设备ID自动检测**：支持多设备环境
-- 📂 **路径自动修复**：测试脚本保存到用户项目目录
-- 🚀 **超时优化**：MCP 操作超时从 25.9秒降至 8秒（69% 提升）
-- 🔧 **等待时间优化**：根据操作类型智能调整（页面跳转 2秒，搜索 2.5秒）
+### v2.2.5 (最新)
+- ✅ 合并双服务端为统一架构，通过环境变量控制模式
+- ✅ 新增设备连接管理（check_connection, reconnect_device）
+- ✅ 新增操作历史管理（get_operation_history, clear_operation_history）
+- ✅ 统一返回值格式为标准 JSON
+- ✅ 修复逻辑错误（device_info字段、重复切片等）
 
-### v2.0.2
-- 🐛 修复独立测试脚本生成问题
-- 📦 优化依赖管理
-
-### v2.0.1
-- 🐛 修复测试脚本 `append()` 语法错误
-- 📝 更新文档
-
-### v2.0.0
-- ✨ AI 功能可选化：基础工具不需要 AI 密钥
-- 🚀 新增 3 个工具：截图、区域截图、AI 视觉识别
-- 📦 依赖优化：核心依赖最小化
-- 🏗️ 架构重构：分离基础工具和智能工具
-- 🐛 修复 AI 响应解析问题
-- 📝 完善用户文档
-
-### 向后兼容
-- ✅ 完全兼容之前的使用方式
-- ✅ 已配置 AI 的用户无需修改
-- ✅ 新用户可以选择不配置 AI
+完整日志请查看 [CHANGELOG.md](CHANGELOG.md)
 
 ## 📊 技术栈
 

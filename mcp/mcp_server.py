@@ -15,6 +15,8 @@ v2.2.0: 合并了两个 MCP Server，移除了 browser_mcp 依赖
 """
 
 import asyncio
+import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -26,6 +28,9 @@ backend_dir = project_root / "backend"
 
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(backend_dir))
+
+# 检测运行模式：full(完整版) 或 simple(简化版)
+SERVER_MODE = os.getenv("MOBILE_MCP_MODE", "full").lower()
 
 from mcp.types import Tool, TextContent
 from mcp.server import Server
@@ -46,6 +51,21 @@ class MobileMCPServer:
         self.basic_tools: Optional[BasicMobileTools] = None
         self.smart_tools: Optional[SmartMobileTools] = None
         self._initialized = False
+    
+    @staticmethod
+    def format_response(result) -> str:
+        """
+        统一格式化返回值为JSON字符串
+        
+        Args:
+            result: 可以是字典、列表或字符串
+            
+        Returns:
+            格式化后的字符串（字典和列表会转为JSON）
+        """
+        if isinstance(result, (dict, list)):
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        return str(result)
     
     async def initialize(self):
         """延迟初始化设备连接"""
@@ -181,39 +201,47 @@ class MobileMCPServer:
                     "required": ["resource_id"]
                 }
             ),
-            Tool(
-                name="mobile_wait",
-                description="⏰ 通用等待工具 - AI 可根据场景灵活控制等待（不需要 AI）。\n\n"
-                           "🔥 强烈建议在以下场景使用：\n"
-                           "1. App 启动后：mobile_launch_app() → mobile_wait(seconds=2-3)\n"
-                           "2. 等待广告：mobile_wait(seconds=3-5)\n"
-                           "3. 等待搜索结果：mobile_wait(wait_for_text='搜索结果')\n"
-                           "4. 等待页面加载：mobile_wait(wait_for_id='com.app:id/home')\n\n"
-                           "⚠️ 不要立即操作刚启动的 App，先等待加载完成！",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "seconds": {
-                            "type": "number",
-                            "description": "固定等待时间（秒）。适用于等待广告、动画等"
+        ])
+        
+        # ==================== 完整版独有工具 ====================
+        if SERVER_MODE == "full":
+            tools.append(
+                Tool(
+                    name="mobile_wait",
+                    description="⏰ 通用等待工具 - AI 可根据场景灵活控制等待（不需要 AI）。\n\n"
+                               "🔥 强烈建议在以下场景使用：\n"
+                               "1. App 启动后：mobile_launch_app() → mobile_wait(seconds=2-3)\n"
+                               "2. 等待广告：mobile_wait(seconds=3-5)\n"
+                               "3. 等待搜索结果：mobile_wait(wait_for_text='搜索结果')\n"
+                               "4. 等待页面加载：mobile_wait(wait_for_id='com.app:id/home')\n\n"
+                               "⚠️ 不要立即操作刚启动的 App，先等待加载完成！",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "seconds": {
+                                "type": "number",
+                                "description": "固定等待时间（秒）。适用于等待广告、动画等"
+                            },
+                            "wait_for_text": {
+                                "type": "string",
+                                "description": "等待指定文本出现。如 '首页'、'搜索结果'"
+                            },
+                            "wait_for_id": {
+                                "type": "string",
+                                "description": "等待指定元素ID出现。如 'com.app:id/home'"
+                            },
+                            "timeout": {
+                                "type": "number",
+                                "description": "等待元素的超时时间（秒），默认 10秒",
+                                "default": 10
+                            }
                         },
-                        "wait_for_text": {
-                            "type": "string",
-                            "description": "等待指定文本出现。如 '首页'、'搜索结果'"
-                        },
-                        "wait_for_id": {
-                            "type": "string",
-                            "description": "等待指定元素ID出现。如 'com.app:id/home'"
-                        },
-                        "timeout": {
-                            "type": "number",
-                            "description": "等待元素的超时时间（秒），默认 10秒",
-                            "default": 10
-                        }
-                    },
-                    "required": []
-                }
-            ),
+                        "required": []
+                    }
+                )
+            )
+        
+        tools.extend([
             Tool(
                 name="mobile_take_screenshot",
                 description="📸 截取屏幕截图（不需要 AI）。用于 Cursor AI 视觉识别、调试或记录测试过程。",
@@ -299,6 +327,24 @@ class MobileMCPServer:
                         }
                     },
                     "required": ["orientation"]
+                }
+            ),
+            Tool(
+                name="mobile_check_connection",
+                description="🔌 检查设备连接状态。返回设备信息和连接状态。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            ),
+            Tool(
+                name="mobile_reconnect_device",
+                description="🔄 重新连接设备。当设备连接断开时使用。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
                 }
             ),
             # ==================== 应用管理工具 ====================
@@ -508,56 +554,61 @@ class MobileMCPServer:
                     "required": []
                 }
             ),
-            Tool(
-                name="mobile_execute_test_case",
-                description="🤖 智能执行测试用例（需要 AI）。AI 会自动规划、执行、验证每一步操作，遇到问题自动分析解决。",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "test_description": {
-                            "type": "string",
-                            "description": "自然语言描述的测试用例，如：'打开 com.im30.mind\\n点击底部云文档\\n点击我的空间'"
-                        }
-                    },
-                    "required": ["test_description"]
-                }
-            ),
-            Tool(
-                name="mobile_generate_test_script",
-                description="📝 基于操作历史生成 pytest 格式的测试脚本（不需要 AI）。\n\n"
-                           "🔥 重要功能：\n"
-                           "1. 自动记录所有 mobile_click、mobile_input 等操作\n"
-                           "2. 一键生成可执行的 pytest 测试脚本\n"
-                           "3. 支持 pytest 批量执行和 allure 报告\n\n"
-                           "使用场景：\n"
-                           "- 手动测试完成后，生成自动化脚本\n"
-                           "- 快速创建回归测试用例\n"
-                           "- 录制复杂的操作流程\n\n"
-                           "💡 提示：执行完一系列操作后，调用此工具即可生成脚本！",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "test_name": {
-                            "type": "string",
-                            "description": "测试用例名称，如 '登录测试'"
-                        },
-                        "package_name": {
-                            "type": "string",
-                            "description": "App 包名，如 'com.im30.mind'"
-                        },
-                        "filename": {
-                            "type": "string",
-                            "description": "生成的脚本文件名（不含 .py 后缀），如 'test_login'"
-                        },
-                        "output_dir": {
-                            "type": "string",
-                            "description": "输出目录路径（可选），默认为 tests 子目录"
-                        }
-                    },
-                    "required": ["test_name", "package_name", "filename"]
-                }
-            ),
         ])
+        
+        # ==================== 完整版独有：智能测试工具 ====================
+        if SERVER_MODE == "full":
+            tools.extend([
+                Tool(
+                    name="mobile_execute_test_case",
+                    description="🤖 智能执行测试用例（需要 AI）。AI 会自动规划、执行、验证每一步操作，遇到问题自动分析解决。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "test_description": {
+                                "type": "string",
+                                "description": "自然语言描述的测试用例，如：'打开 com.im30.mind\\n点击底部云文档\\n点击我的空间'"
+                            }
+                        },
+                        "required": ["test_description"]
+                    }
+                ),
+                Tool(
+                    name="mobile_generate_test_script",
+                    description="📝 基于操作历史生成 pytest 格式的测试脚本（不需要 AI）。\n\n"
+                               "🔥 重要功能：\n"
+                               "1. 自动记录所有 mobile_click、mobile_input 等操作\n"
+                               "2. 一键生成可执行的 pytest 测试脚本\n"
+                               "3. 支持 pytest 批量执行和 allure 报告\n\n"
+                               "使用场景：\n"
+                               "- 手动测试完成后，生成自动化脚本\n"
+                               "- 快速创建回归测试用例\n"
+                               "- 录制复杂的操作流程\n\n"
+                               "💡 提示：执行完一系列操作后，调用此工具即可生成脚本！",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "test_name": {
+                                "type": "string",
+                                "description": "测试用例名称，如 '登录测试'"
+                            },
+                            "package_name": {
+                                "type": "string",
+                                "description": "App 包名，如 'com.im30.mind'"
+                            },
+                            "filename": {
+                                "type": "string",
+                                "description": "生成的脚本文件名（不含 .py 后缀），如 'test_login'"
+                            },
+                            "output_dir": {
+                                "type": "string",
+                                "description": "输出目录路径（可选），默认为 tests 子目录"
+                            }
+                        },
+                        "required": ["test_name", "package_name", "filename"]
+                    }
+                ),
+            ])
         
         # ==================== 通用工具 ====================
         
@@ -621,6 +672,34 @@ class MobileMCPServer:
                         }
                     },
                     "required": ["direction"]
+                }
+            ),
+        ])
+        
+        # ==================== 完整版独有：操作历史管理工具 ====================
+        if SERVER_MODE == "full":
+            tools.extend([
+                Tool(
+                    name="mobile_get_operation_history",
+                description="📜 获取操作历史记录。查看之前执行的所有操作。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "number",
+                            "description": "返回最近的N条记录，不指定则返回全部"
+                        }
+                    },
+                    "required": []
+                }
+            ),
+            Tool(
+                name="mobile_clear_operation_history",
+                description="🗑️ 清空操作历史记录。清空后将无法生成测试脚本。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
                 }
             ),
             # ==================== 动态配置工具 ====================
@@ -734,16 +813,16 @@ class MobileMCPServer:
                     "required": []
                 }
             ),
-            Tool(
-                name="mobile_get_config",
-                description="📋 获取当前动态配置。查看当前所有配置值。",
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            ),
-        ])
+                Tool(
+                    name="mobile_get_config",
+                    description="📋 获取当前动态配置。查看当前所有配置值。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                ),
+            ])
         
         return tools
     
@@ -755,53 +834,40 @@ class MobileMCPServer:
             # ==================== 基础工具 ====================
             if name == "mobile_list_elements":
                 result = self.basic_tools.list_elements()
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_click_by_id":
                 result = self.basic_tools.click_by_id(arguments["resource_id"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_click_by_text":
                 result = self.basic_tools.click_by_text(arguments["text"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_click_at_coords":
                 result = self.basic_tools.click_at_coords(arguments["x"], arguments["y"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_input_text_by_id":
                 result = self.basic_tools.input_text_by_id(
                     arguments["resource_id"],
                     arguments["text"]
                 )
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_find_elements_by_class":
                 result = self.basic_tools.find_elements_by_class(arguments["class_name"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_wait_for_element":
                 timeout = arguments.get("timeout", 10)
                 result = self.basic_tools.wait_for_element(arguments["resource_id"], timeout)
-                return [TextContent(type="text", text=str(result))]
-            
-            elif name == "mobile_wait":
-                seconds = arguments.get("seconds")
-                wait_for_text = arguments.get("wait_for_text")
-                wait_for_id = arguments.get("wait_for_id")
-                timeout = arguments.get("timeout", 10)
-                result = self.basic_tools.wait(
-                    seconds=seconds,
-                    wait_for_text=wait_for_text,
-                    wait_for_id=wait_for_id,
-                    timeout=timeout
-                )
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_take_screenshot":
                 description = arguments.get("description", "")
                 result = self.basic_tools.take_screenshot(description)
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_take_screenshot_region":
                 description = arguments.get("description", "")
@@ -810,142 +876,99 @@ class MobileMCPServer:
                     arguments["x2"], arguments["y2"],
                     description
                 )
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             # ==================== 设备管理工具 ====================
             elif name == "mobile_list_devices":
                 result = self.basic_tools.list_devices()
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_get_screen_size":
                 result = self.basic_tools.get_screen_size()
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_get_orientation":
                 result = self.basic_tools.get_orientation()
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_set_orientation":
                 result = self.basic_tools.set_orientation(arguments["orientation"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_check_connection":
+                result = self.basic_tools.check_connection()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_reconnect_device":
+                result = self.basic_tools.reconnect_device()
+                return [TextContent(type="text", text=self.format_response(result))]
             
             # ==================== 应用管理工具 ====================
             elif name == "mobile_list_apps":
                 filter_keyword = arguments.get("filter", "")
                 result = self.basic_tools.list_apps(filter_keyword)
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_install_app":
                 result = self.basic_tools.install_app(arguments["apk_path"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_uninstall_app":
                 result = self.basic_tools.uninstall_app(arguments["package_name"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_terminate_app":
                 result = self.basic_tools.terminate_app(arguments["package_name"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_get_current_package":
                 result = self.basic_tools.get_current_package()
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             # ==================== 高级交互工具 ====================
             elif name == "mobile_double_click":
                 result = self.basic_tools.double_click_at_coords(
                     int(arguments["x"]), int(arguments["y"])
                 )
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_long_press":
                 duration = arguments.get("duration", 1.0)
                 result = self.basic_tools.long_press_at_coords(
                     int(arguments["x"]), int(arguments["y"]), duration
                 )
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_open_url":
                 result = self.basic_tools.open_url(arguments["url"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_assert_text":
                 result = self.basic_tools.assert_text(arguments["text"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             # ==================== 智能工具 ====================
             elif name == "mobile_smart_click":
                 result = await self.smart_tools.smart_click(arguments["description"])
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_smart_input":
                 result = await self.smart_tools.smart_input(
                     arguments["description"],
                     arguments["text"]
                 )
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_analyze_screenshot":
                 result = await self.smart_tools.analyze_screenshot_with_ai(
                     arguments["screenshot_path"],
                     arguments["description"]
                 )
-                return [TextContent(type="text", text=str(result))]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_get_ai_status":
                 result = self.smart_tools.get_ai_status()
-                return [TextContent(type="text", text=str(result))]
-            
-            elif name == "mobile_execute_test_case":
-                # 智能执行测试用例
-                try:
-                    from mobile_mcp.core.ai.smart_test_executor import SmartTestExecutor
-                    executor = SmartTestExecutor(self.client)
-                    # 正确的方法名是 execute_test_case（异步方法）
-                    result = await executor.execute_test_case(arguments["test_description"])
-                    return [TextContent(type="text", text=str(result))]
-                except ImportError:
-                    return [TextContent(type="text", text="❌ 智能测试执行器模块未安装")]
-                except Exception as e:
-                    return [TextContent(type="text", text=f"❌ 测试执行失败: {str(e)}")]
-            
-            elif name == "mobile_generate_test_script":
-                # 生成测试脚本（基于操作历史）
-                try:
-                    from mobile_mcp.core.ai.test_generator_from_history import TestGeneratorFromHistory
-                    from mobile_mcp.core.utils.operation_history_manager import OperationHistoryManager
-                    
-                    # 获取操作历史
-                    history_manager = OperationHistoryManager()
-                    operation_history = history_manager.get_history()
-                    
-                    if not operation_history:
-                        return [TextContent(type="text", text="❌ 没有操作历史，请先执行一些操作")]
-                    
-                    generator = TestGeneratorFromHistory()
-                    # 正确的方法名是 generate_from_history
-                    script = generator.generate_from_history(
-                        test_name=arguments["test_name"],
-                        package_name=arguments["package_name"],
-                        operation_history=operation_history
-                    )
-                    
-                    # 保存脚本
-                    output_dir = arguments.get("output_dir", "tests")
-                    filename = arguments["filename"]
-                    if not filename.endswith('.py'):
-                        filename = f"{filename}.py"
-                    
-                    from pathlib import Path
-                    output_path = Path(output_dir) / filename
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    generator.save(str(output_path), script)
-                    
-                    return [TextContent(type="text", text=f"✅ 测试脚本已生成: {output_path}\n\n{script[:500]}...")]
-                except ImportError as e:
-                    return [TextContent(type="text", text=f"❌ 模块导入失败: {str(e)}")]
-                except Exception as e:
-                    return [TextContent(type="text", text=f"❌ 脚本生成失败: {str(e)}")]
+                return [TextContent(type="text", text=self.format_response(result))]
             
             # ==================== 通用工具 ====================
             elif name == "mobile_snapshot":
@@ -964,22 +987,99 @@ class MobileMCPServer:
                 await self.client.swipe(arguments["direction"])
                 return [TextContent(type="text", text=f"✅ 已滑动: {arguments['direction']}")]
             
-            # ==================== 动态配置工具 ====================
+            # ==================== 完整版独有工具处理 ====================
+            elif name == "mobile_wait":
+                if SERVER_MODE != "full":
+                    return [TextContent(type="text", text=f"❌ 此工具仅在完整版可用，当前为简化版")]
+                seconds = arguments.get("seconds")
+                wait_for_text = arguments.get("wait_for_text")
+                wait_for_id = arguments.get("wait_for_id")
+                timeout = arguments.get("timeout", 10)
+                result = self.basic_tools.wait(
+                    seconds=seconds,
+                    wait_for_text=wait_for_text,
+                    wait_for_id=wait_for_id,
+                    timeout=timeout
+                )
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_get_operation_history":
+                if SERVER_MODE != "full":
+                    return [TextContent(type="text", text=f"❌ 此工具仅在完整版可用，当前为简化版")]
+                limit = arguments.get("limit")
+                result = self.basic_tools.get_operation_history(limit)
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_clear_operation_history":
+                if SERVER_MODE != "full":
+                    return [TextContent(type="text", text=f"❌ 此工具仅在完整版可用，当前为简化版")]
+                result = self.basic_tools.clear_operation_history()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
             elif name == "mobile_configure":
-                # 重置配置
+                if SERVER_MODE != "full":
+                    return [TextContent(type="text", text=f"❌ 此工具仅在完整版可用，当前为简化版")]
                 if arguments.get("reset", False):
                     result = DynamicConfig.reset()
-                    return [TextContent(type="text", text=str(result))]
-                
-                # 更新配置
-                result = DynamicConfig.update(arguments)
-                return [TextContent(type="text", text=str(result))]
+                else:
+                    result = DynamicConfig.update(arguments)
+                return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_get_config":
+                if SERVER_MODE != "full":
+                    return [TextContent(type="text", text=f"❌ 此工具仅在完整版可用，当前为简化版")]
                 current_config = DynamicConfig.get_current()
-                import json
                 config_str = json.dumps(current_config, indent=2, ensure_ascii=False)
                 return [TextContent(type="text", text=f"📋 当前配置：\n{config_str}")]
+            
+            elif name == "mobile_execute_test_case":
+                if SERVER_MODE != "full":
+                    return [TextContent(type="text", text=f"❌ 此工具仅在完整版可用，当前为简化版")]
+                try:
+                    from mobile_mcp.core.ai.smart_test_executor import SmartTestExecutor
+                    executor = SmartTestExecutor(self.client)
+                    result = await executor.execute_test_case(arguments["test_description"])
+                    return [TextContent(type="text", text=self.format_response(result))]
+                except ImportError:
+                    return [TextContent(type="text", text="❌ 智能测试执行器模块未安装")]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"❌ 测试执行失败: {str(e)}")]
+            
+            elif name == "mobile_generate_test_script":
+                if SERVER_MODE != "full":
+                    return [TextContent(type="text", text=f"❌ 此工具仅在完整版可用，当前为简化版")]
+                try:
+                    from mobile_mcp.core.ai.test_generator_from_history import TestGeneratorFromHistory
+                    from mobile_mcp.core.utils.operation_history_manager import OperationHistoryManager
+                    
+                    history_manager = OperationHistoryManager()
+                    operation_history = history_manager.get_all()
+                    
+                    if not operation_history:
+                        return [TextContent(type="text", text="❌ 没有操作历史，请先执行一些操作")]
+                    
+                    generator = TestGeneratorFromHistory()
+                    script = generator.generate_from_history(
+                        test_name=arguments["test_name"],
+                        package_name=arguments["package_name"],
+                        operation_history=operation_history
+                    )
+                    
+                    output_dir = arguments.get("output_dir", "tests")
+                    filename = arguments["filename"]
+                    if not filename.endswith('.py'):
+                        filename = f"{filename}.py"
+                    
+                    from pathlib import Path
+                    output_path = Path(output_dir) / filename
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    generator.save(str(output_path), script)
+                    
+                    return [TextContent(type="text", text=f"✅ 测试脚本已生成: {output_path}\n\n{script[:500]}...")]
+                except ImportError as e:
+                    return [TextContent(type="text", text=f"❌ 模块导入失败: {str(e)}")]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"❌ 脚本生成失败: {str(e)}")]
             
             else:
                 return [TextContent(type="text", text=f"❌ 未知工具: {name}")]
@@ -1002,9 +1102,11 @@ async def main():
     async def call_tool(name: str, arguments: dict):
         return await server.handle_tool_call(name, arguments)
     
-    print("🚀 Mobile MCP Server v2.2.0 启动中...", file=sys.stderr)
-    print("📋 基础工具：总是可用（不需要 AI）", file=sys.stderr)
-    print("🤖 智能工具：需要配置 AI 密钥（可选）", file=sys.stderr)
+    mode_name = "完整版 (39工具)" if SERVER_MODE == "full" else "简化版 (32工具)"
+    print(f"🚀 Mobile MCP Server v2.2.5 启动中... [{mode_name}]", file=sys.stderr)
+    print(f"📋 运行模式: {SERVER_MODE.upper()}", file=sys.stderr)
+    if SERVER_MODE == "simple":
+        print("💡 提示: 使用完整版可获得更多功能（操作历史、动态配置等）", file=sys.stderr)
     
     async with stdio_server() as (read_stream, write_stream):
         await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())

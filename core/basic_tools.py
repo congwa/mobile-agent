@@ -19,6 +19,7 @@ import time
 import json
 
 from .dynamic_config import DynamicConfig
+from .utils.operation_history_manager import OperationHistoryManager
 
 
 class BasicMobileTools:
@@ -813,6 +814,132 @@ class BasicMobileTools:
             return {
                 "success": False,
                 "error": f"等待失败: {str(e)}"
+            }
+    
+    def check_connection(self) -> Dict:
+        """
+        检查设备连接状态
+        
+        Returns:
+            连接状态信息
+        """
+        try:
+            # 尝试获取设备信息
+            device_info = self.client.u2.device_info
+            screen_size = self.client.u2.window_size()
+            
+            return {
+                "success": True,
+                "connected": True,
+                "device_info": {
+                    "serial": device_info.get("serial", "unknown"),
+                    "brand": device_info.get("brand", "unknown"),
+                    "model": device_info.get("model", "unknown"),
+                    "version": device_info.get("version", "unknown"),
+                    "screen_size": f"{screen_size[0]}x{screen_size[1]}"
+                },
+                "message": "✅ 设备已连接"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "connected": False,
+                "error": str(e),
+                "message": f"❌ 设备未连接: {str(e)}"
+            }
+    
+    def reconnect_device(self) -> Dict:
+        """
+        重新连接设备
+        
+        Returns:
+            重连结果
+        """
+        try:
+            # 通过 device_manager 重新连接，保持原有配置
+            if hasattr(self.client, 'device_manager') and self.client.device_manager:
+                self.client.u2 = self.client.device_manager.connect()
+            else:
+                # 降级方案：直接重连默认设备
+                import uiautomator2 as u2
+                self.client.u2 = u2.connect()
+            
+            # 验证连接
+            device_info = self.client.u2.device_info
+            
+            return {
+                "success": True,
+                "device_info": {
+                    "serial": device_info.get("serial", "unknown"),
+                    "model": device_info.get("model", "unknown")
+                },
+                "message": f"✅ 重连成功: {device_info.get('brand', '')} {device_info.get('model', 'unknown')}"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"❌ 重连失败: {str(e)}",
+                "suggestion": "请检查设备USB连接或执行 'adb devices'"
+            }
+    
+    def get_operation_history(self, limit: Optional[int] = None) -> Dict:
+        """
+        获取操作历史记录
+        
+        Args:
+            limit: 返回最近的N条记录，None表示全部
+            
+        Returns:
+            历史记录信息
+        """
+        try:
+            history_manager = OperationHistoryManager()
+            operations = history_manager.load(limit=limit)  # load已经处理了limit
+            statistics = history_manager.get_statistics()
+            
+            return {
+                "success": True,
+                "count": len(operations),
+                "total": statistics.get("total", 0),
+                "operations": operations,  # 不需要再次切片
+                "statistics": statistics,
+                "message": f"✅ 获取到 {len(operations)} 条操作记录"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"❌ 获取历史记录失败: {str(e)}"
+            }
+    
+    def clear_operation_history(self) -> Dict:
+        """
+        清空操作历史记录
+        
+        Returns:
+            清空结果
+        """
+        try:
+            history_manager = OperationHistoryManager()
+            
+            # 获取清空前的统计
+            old_stats = history_manager.get_statistics()
+            old_count = old_stats.get("total", 0)
+            
+            # 清空历史
+            history_manager.clear()
+            
+            return {
+                "success": True,
+                "cleared_count": old_count,
+                "message": f"✅ 已清空 {old_count} 条操作记录"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"❌ 清空历史记录失败: {str(e)}"
             }
 
 

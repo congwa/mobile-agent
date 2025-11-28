@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.2.4",  # 重要修复：修复click()返回值判断bug，点击成功却误报"文本不存在"
+    version="2.2.5",  # 架构优化：合并双服务端+新增4个工具+统一JSON格式
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
