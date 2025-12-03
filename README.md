@@ -23,6 +23,18 @@
 
 ---
 
+## 📞 联系方式
+
+<div align="center">
+
+<img src="docs/images/wechat-qr.jpg" alt="微信二维码" width="300"/>
+
+**有问题或需要帮助？欢迎添加微信交流（备注：mobile-mcp）**
+
+</div>
+
+---
+
 ## ✨ 核心特性
 
 ### 🎯 AI 功能可选化
