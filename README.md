@@ -387,7 +387,12 @@ await press_key("back", verify=False)
 
 ## 🆕 更新日志
 
-### v2.2.5 (最新)
+### v2.2.6 (最新)
+- ✅ 修复截图目录路径问题（修复路径计算错误）
+- ✅ 修复 MCP 包导入冲突（延迟导入，避免与系统包冲突）
+- ✅ 改进目录创建逻辑（使用 parents=True 确保父目录创建）
+
+### v2.2.5
 - ✅ 合并双服务端为统一架构，通过环境变量控制模式
 - ✅ 新增设备连接管理（check_connection, reconnect_device）
 - ✅ 新增操作历史管理（get_operation_history, clear_operation_history）

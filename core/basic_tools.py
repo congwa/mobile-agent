@@ -35,9 +35,9 @@ class BasicMobileTools:
         self.client = mobile_client
         
         # 截图目录
-        project_root = Path(__file__).parent.parent.parent.parent
-        self.screenshot_dir = project_root / "backend" / "mobile_mcp" / "screenshots"
-        self.screenshot_dir.mkdir(exist_ok=True)
+        project_root = Path(__file__).parent.parent  # core -> mobile_mcp (项目根目录)
+        self.screenshot_dir = project_root / "screenshots"
+        self.screenshot_dir.mkdir(parents=True, exist_ok=True)
     
     def list_elements(self) -> List[Dict]:
         """

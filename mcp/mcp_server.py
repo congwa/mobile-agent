@@ -26,12 +26,21 @@ mobile_mcp_dir = Path(__file__).parent.parent
 project_root = mobile_mcp_dir.parent.parent
 backend_dir = project_root / "backend"
 
+# 确保系统的 mcp 包优先导入（避免与 mobile_mcp.mcp 冲突）
+# 将 site-packages 路径插入到最前面
+import site
+for site_dir in site.getsitepackages():
+    if (Path(site_dir) / 'mcp').exists():
+        sys.path.insert(0, str(site_dir))
+        break
+
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(backend_dir))
 
 # 检测运行模式：full(完整版) 或 simple(简化版)
 SERVER_MODE = os.getenv("MOBILE_MCP_MODE", "full").lower()
 
+# 导入系统的 mcp 包（现在应该能正确导入）
 from mcp.types import Tool, TextContent
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -1103,7 +1112,7 @@ async def main():
         return await server.handle_tool_call(name, arguments)
     
     mode_name = "完整版 (39工具)" if SERVER_MODE == "full" else "简化版 (32工具)"
-    print(f"🚀 Mobile MCP Server v2.2.5 启动中... [{mode_name}]", file=sys.stderr)
+    print(f"🚀 Mobile MCP Server v2.2.6 启动中... [{mode_name}]", file=sys.stderr)
     print(f"📋 运行模式: {SERVER_MODE.upper()}", file=sys.stderr)
     if SERVER_MODE == "simple":
         print("💡 提示: 使用完整版可获得更多功能（操作历史、动态配置等）", file=sys.stderr)
