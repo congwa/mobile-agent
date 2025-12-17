@@ -7,8 +7,12 @@
 [![PyPI](https://img.shields.io/pypi/v/mobile-mcp-ai.svg?style=flat-square&color=blue)](https://pypi.org/project/mobile-mcp-ai/)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg?style=flat-square)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-orange.svg?style=flat-square)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-支持-brightgreen.svg?style=flat-square&logo=android)](https://developer.android.com/)
+[![iOS](https://img.shields.io/badge/iOS-支持-black.svg?style=flat-square&logo=apple)](docs/iOS_SETUP_GUIDE.md)
 
 **⭐ 觉得有用？给个 Star 支持一下！**
+
+**📱 支持 Android 和 iOS 双平台**
 
 </div>
 
@@ -81,6 +85,15 @@ Cursor AI 自动分析截图，精准定位 UI 元素，游戏、原生应用通
 
 ---
 
+## 📱 平台支持
+
+| 平台 | 支持状态 | 系统要求 | 配置指南 |
+|:---:|:---:|:---:|:---:|
+| **Android** | ✅ 完整支持 | Windows / macOS / Linux | 开箱即用 |
+| **iOS** | ✅ 完整支持 | macOS（必须） | [iOS 配置指南 →](docs/iOS_SETUP_GUIDE.md) |
+
+---
+
 ## 📦 安装
 
 ```bash
@@ -103,6 +116,8 @@ pip show mobile-mcp-ai
 
 ## 📱 连接设备
 
+### Android 设备
+
 确保手机已开启 USB 调试，然后：
 
 ```bash
@@ -111,11 +126,24 @@ adb devices
 
 看到设备列表即表示连接成功。
 
+### iOS 设备（macOS）
+
+iOS 自动化需要额外配置 WebDriverAgent，请参考：
+
+📖 **[iOS 配置指南 →](docs/iOS_SETUP_GUIDE.md)**
+
+快速检查连接：
+```bash
+tidevice list
+```
+
 ---
 
 ## ⚙️ 配置 Cursor
 
 编辑 `~/.cursor/mcp.json`：
+
+### Android 配置
 
 ```json
 {
@@ -123,11 +151,34 @@ adb devices
     "mobile-automation": {
       "command": "python",
       "args": ["-m", "mobile_mcp.mcp.mcp_server"],
-      "cwd": "/your/project/path"
+      "cwd": "/your/project/path",
+      "env": {
+        "DEFAULT_PLATFORM": "android"
+      }
     }
   }
 }
 ```
+
+### iOS 配置
+
+```json
+{
+  "mcpServers": {
+    "mobile-automation": {
+      "command": "python",
+      "args": ["-m", "mobile_mcp.mcp.mcp_server"],
+      "cwd": "/your/project/path",
+      "env": {
+        "DEFAULT_PLATFORM": "ios",
+        "IOS_SUPPORT_ENABLED": "true"
+      }
+    }
+  }
+}
+```
+
+> 📖 iOS 需要先配置 WebDriverAgent，详见 **[iOS 配置指南](docs/iOS_SETUP_GUIDE.md)**
 
 保存后**重启 Cursor**。
 
