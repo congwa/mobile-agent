@@ -19,8 +19,12 @@ python-dotenv>=1.0.0
 # selenium>=4.0.0
 
 # iOS支持（可选，需要macOS和Xcode）
-# 如果需要在iOS设备上运行，取消下面的注释：
-# Appium-Python-Client>=3.0.0  # iOS自动化需要
+# 方案1：tidevice + facebook-wda（推荐，API类似uiautomator2）
+tidevice>=0.11.0  # 阿里开源的iOS设备管理工具
+facebook-wda>=1.4.0  # Facebook的iOS自动化库
+
+# 方案2：Appium（传统方案，配置较复杂）
+# Appium-Python-Client>=3.0.0
 
 # 异步支持（Python标准库，无需安装）
 # asyncio

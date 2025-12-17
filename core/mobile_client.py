@@ -36,7 +36,7 @@ class MobileClient:
         await client.click("登录按钮")
     """
     
-    def __init__(self, device_id: Optional[str] = None, platform: str = "android", lock_orientation: bool = True):
+    def __init__(self, device_id: Optional[str] = None, platform: str = "android", lock_orientation: bool = True, lazy_connect: bool = False):
         """
         初始化移动端客户端
         
@@ -44,21 +44,33 @@ class MobileClient:
             device_id: 设备ID，None则自动选择第一个设备
             platform: 平台类型 ("android" 或 "ios")
             lock_orientation: 是否锁定屏幕方向为竖屏（默认True，仅Android有效）
+            lazy_connect: 是否延迟连接（默认False）。如果为True，则不立即连接设备
         """
         self.platform = platform
+        self._device_id = device_id
+        self._lazy_connect = lazy_connect
         
         if platform == "android":
             self.device_manager = DeviceManager(platform="android")
-            self.u2 = self.device_manager.connect(device_id)
+            if not lazy_connect:
+                self.u2 = self.device_manager.connect(device_id)
+            else:
+                self.u2 = None
             self.driver = None  # iOS使用
             
             # 初始化智能等待工具
-            self.smart_wait = SmartWait(self)
+            if not lazy_connect:
+                self.smart_wait = SmartWait(self)
+            else:
+                self.smart_wait = None
         elif platform == "ios":
-            from .ios_device_manager import IOSDeviceManager
-            self.device_manager = IOSDeviceManager()
-            self.driver = self.device_manager.connect(device_id)
-            self.u2 = None  # Android使用
+            # 🍎 iOS 支持：使用 tidevice + facebook-wda
+            from .ios_client_wda import IOSClientWDA
+            self._ios_client = IOSClientWDA(device_id=device_id, lazy_connect=lazy_connect)
+            self.device_manager = self._ios_client.device_manager
+            self.wda = self._ios_client.wda if not lazy_connect else None
+            self.driver = None
+            self.u2 = None
         else:
             raise ValueError(f"不支持的平台: {platform}")
         
@@ -165,6 +177,20 @@ class MobileClient:
             if current_time - self._cache_timestamp < self._cache_ttl:
                 return self._snapshot_cache
         
+        # iOS平台使用不同的实现
+        if self.platform == "ios":
+            if not self.driver:
+                raise RuntimeError("iOS设备未连接")
+            # 获取iOS页面源码
+            xml_string = self.driver.page_source
+            if not isinstance(xml_string, str):
+                xml_string = str(xml_string)
+            # iOS的XML格式可能不同，直接返回或简单格式化
+            self._snapshot_cache = xml_string
+            self._cache_timestamp = time.time()
+            return xml_string
+        
+        # Android平台
         # 获取XML
         xml_string = self.u2.dump_hierarchy()
         
@@ -676,6 +702,31 @@ class MobileClient:
             - verified: 是否经过验证
             - page_changed: 页面是否变化（仅 verify=True）
         """
+        # iOS平台使用不同的实现
+        if self.platform == "ios":
+            if not self.driver:
+                return {"success": False, "reason": "iOS设备未连接"}
+            try:
+                size = self.driver.get_window_size()
+                width = size['width']
+                height = size['height']
+                
+                if direction == 'up':
+                    self.driver.swipe(width // 2, int(height * 0.8), width // 2, int(height * 0.2))
+                elif direction == 'down':
+                    self.driver.swipe(width // 2, int(height * 0.2), width // 2, int(height * 0.8))
+                elif direction == 'left':
+                    self.driver.swipe(int(width * 0.8), height // 2, int(width * 0.2), height // 2)
+                elif direction == 'right':
+                    self.driver.swipe(int(width * 0.2), height // 2, int(width * 0.8), height // 2)
+                else:
+                    return {"success": False, "reason": f"不支持的滑动方向: {direction}"}
+                
+                return {"success": True, "direction": direction}
+            except Exception as e:
+                return {"success": False, "reason": str(e)}
+        
+        # Android平台
         # 获取屏幕尺寸
         width, height = self.u2.window_size()
         
@@ -739,14 +790,36 @@ class MobileClient:
         启动App（快速模式：最多等待3秒+截图验证）
         
         Args:
-            package_name: App包名（如 "com.example.app"）
+            package_name: App包名（Android）或Bundle ID（iOS），如 "com.example.app"
             wait_time: 等待App启动的时间（秒）- 默认3秒
-            smart_wait: 是否启用智能等待（自动关闭广告、截图验证）
+            smart_wait: 是否启用智能等待（自动关闭广告、截图验证）- 仅Android
             
         Returns:
             操作结果（包含screenshot_path字段供AI验证）
         """
         try:
+            # iOS平台使用不同的实现
+            if self.platform == "ios":
+                if not self.driver:
+                    return {"success": False, "reason": "iOS设备未连接"}
+                try:
+                    print(f"  📱 启动iOS App: {package_name}", file=sys.stderr)
+                    self.driver.activate_app(package_name)
+                    await asyncio.sleep(wait_time)
+                    
+                    # 验证是否启动成功
+                    current = await self.get_current_package()
+                    if current == package_name:
+                        print(f"  ✅ iOS App启动成功: {package_name}", file=sys.stderr)
+                        return {"success": True, "package": package_name}
+                    else:
+                        print(f"  ⚠️  iOS App可能未启动成功，当前App: {current}，期望: {package_name}", file=sys.stderr)
+                        return {"success": True, "package": package_name, "warning": f"当前App: {current}"}
+                except Exception as e:
+                    print(f"  ❌ iOS App启动异常: {e}", file=sys.stderr)
+                    return {"success": False, "reason": str(e)}
+            
+            # Android平台
             # 🎯 优先使用智能启动（推荐）
             if smart_wait:
                 from .smart_app_launcher import SmartAppLauncher
@@ -809,13 +882,27 @@ class MobileClient:
         停止App
         
         Args:
-            package_name: App包名
+            package_name: App包名（Android）或Bundle ID（iOS）
             
         Returns:
             操作结果
         """
         try:
             print(f"  📱 停止App: {package_name}", file=sys.stderr)
+            
+            # iOS平台使用不同的实现
+            if self.platform == "ios":
+                if not self.driver:
+                    return {"success": False, "reason": "iOS设备未连接"}
+                try:
+                    self.driver.terminate_app(package_name)
+                    print(f"  ✅ iOS App已停止: {package_name}", file=sys.stderr)
+                    return {"success": True}
+                except Exception as e:
+                    print(f"  ❌ iOS App停止失败: {e}", file=sys.stderr)
+                    return {"success": False, "reason": str(e)}
+            
+            # Android平台
             self.u2.app_stop(package_name)
             print(f"  ✅ App已停止: {package_name}", file=sys.stderr)
             return {"success": True}
@@ -825,14 +912,19 @@ class MobileClient:
     
     async def get_current_package(self) -> Optional[str]:
         """
-        获取当前App包名
+        获取当前App包名（Android）或Bundle ID（iOS）
         
         Returns:
-            包名或None
+            包名/Bundle ID或None
         """
         try:
-            info = self.u2.app_current()
-            return info.get('package')
+            if self.platform == "ios":
+                if not self.driver:
+                    return None
+                return self.driver.current_package
+            else:
+                info = self.u2.app_current()
+                return info.get('package')
         except:
             return None
     
@@ -860,6 +952,34 @@ class MobileClient:
             - page_changed: 页面是否变化（仅 verify=True 时）
             - fallback_used: 是否使用了备选方案（仅搜索键）
         """
+        # iOS平台使用不同的实现
+        if self.platform == "ios":
+            if not self.driver:
+                return {"success": False, "reason": "iOS设备未连接"}
+            try:
+                # iOS按键映射（使用XCUITest的按键）
+                ios_key_map = {
+                    'enter': 'return',
+                    '回车': 'return',
+                    'back': 'back',
+                    '返回': 'back',
+                    'home': 'home',
+                }
+                
+                key_lower = key.lower()
+                if key_lower in ios_key_map:
+                    ios_key = ios_key_map[key_lower]
+                    # iOS使用execute_script发送按键
+                    self.driver.execute_script("mobile: pressButton", {"name": ios_key})
+                    print(f"  ✅ iOS按键成功: {key} ({ios_key})", file=sys.stderr)
+                    return {"success": True, "key": key, "verified": False}
+                else:
+                    return {"success": False, "reason": f"iOS不支持的按键: {key}"}
+            except Exception as e:
+                print(f"  ❌ iOS按键失败: {e}", file=sys.stderr)
+                return {"success": False, "reason": str(e)}
+        
+        # Android平台
         key_map = {
             'enter': 66,  # KEYCODE_ENTER
             '回车': 66,
@@ -1094,4 +1214,105 @@ class MobileClient:
             x1, y1, x2, y2 = map(int, match.groups())
             return ((x1 + x2) // 2, (y1 + y2) // 2)
         return (0, 0)
+    
+    async def _ios_click(self, element: str, ref: Optional[str] = None):
+        """
+        iOS平台的点击实现
+        
+        Args:
+            element: 元素描述
+            ref: 元素定位器
+            
+        Returns:
+            操作结果
+        """
+        try:
+            from selenium.webdriver.common.by import By
+            
+            # 如果提供了ref，直接使用
+            if ref:
+                if ref.startswith('//') or ref.startswith('/'):
+                    # XPath
+                    elem = self.driver.find_element(By.XPATH, ref)
+                elif ref.startswith('id='):
+                    # accessibility_id
+                    elem = self.driver.find_element(By.ID, ref.replace('id=', ''))
+                else:
+                    # 默认作为accessibility_id
+                    elem = self.driver.find_element(By.ID, ref)
+            else:
+                # 尝试多种定位方式
+                selectors = [
+                    (By.XPATH, f"//*[@name='{element}']"),
+                    (By.XPATH, f"//*[@label='{element}']"),
+                    (By.XPATH, f"//*[contains(@name, '{element}')]"),
+                ]
+                
+                elem = None
+                for by, selector in selectors:
+                    try:
+                        elem = self.driver.find_element(by, selector)
+                        break
+                    except:
+                        continue
+                
+                if not elem:
+                    raise ValueError(f"未找到元素: {element}")
+            
+            elem.click()
+            
+            # 记录操作
+            self.operation_history.append({
+                'action': 'click',
+                'element': element,
+                'ref': ref or 'auto',
+                'success': True
+            })
+            
+            return {"success": True, "ref": ref or element}
+            
+        except Exception as e:
+            return {"success": False, "reason": str(e)}
+    
+    async def _ios_type_text(self, element: str, text: str, ref: Optional[str] = None):
+        """
+        iOS平台的输入文本实现
+        
+        Args:
+            element: 元素描述
+            text: 要输入的文本
+            ref: 元素定位器
+            
+        Returns:
+            操作结果
+        """
+        try:
+            from selenium.webdriver.common.by import By
+            
+            # 定位输入框
+            if ref:
+                if ref.startswith('//'):
+                    elem = self.driver.find_element(By.XPATH, ref)
+                else:
+                    elem = self.driver.find_element(By.ID, ref)
+            else:
+                # 查找第一个输入框
+                elem = self.driver.find_element(By.XPATH, "//XCUIElementTypeTextField | //XCUIElementTypeSecureTextField")
+            
+            elem.clear()
+            elem.send_keys(text)
+            
+            # 记录操作
+            self.operation_history.append({
+                'action': 'type',
+                'element': element,
+                'text': text,
+                'ref': ref or 'auto',
+                'success': True
+            })
+            
+            return {"success": True, "ref": ref or element}
+            
+        except Exception as e:
+            return {"success": False, "reason": str(e)}
 

@@ -1,0 +1,483 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Mobile MCP Server - 统一入口
+
+纯 MCP 方案，完全依赖 Cursor 视觉能力：
+- 不需要 AI 密钥
+- 20 个核心工具
+- 支持 Android 和 iOS
+- 保留 pytest 脚本生成
+
+使用方式：
+    python mcp_server.py
+    
+配置 Cursor：
+    {
+        "mcpServers": {
+            "mobile": {
+                "command": "/path/to/venv/bin/python",
+                "args": ["/path/to/mobile_mcp/mcp_server.py"],
+                "env": {
+                    "MOBILE_PLATFORM": "android"  // 或 "ios"
+                }
+            }
+        }
+    }
+"""
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Optional
+
+# 添加项目根目录到 Python 路径
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root.parent))
+
+from mcp.types import Tool, TextContent
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+
+
+class MobileMCPServer:
+    """Mobile MCP Server - 精简版"""
+    
+    def __init__(self):
+        self.client = None
+        self.tools = None
+        self._initialized = False
+    
+    @staticmethod
+    def format_response(result) -> str:
+        """统一格式化返回值"""
+        if isinstance(result, (dict, list)):
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        return str(result)
+    
+    async def initialize(self):
+        """延迟初始化设备连接"""
+        if self._initialized:
+            return
+        
+        platform = self._detect_platform()
+        
+        try:
+            from mobile_mcp.core.mobile_client import MobileClient
+            from mobile_mcp.core.basic_tools_lite import BasicMobileToolsLite
+            
+            self.client = MobileClient(platform=platform)
+            self.tools = BasicMobileToolsLite(self.client)
+            print(f"📱 已连接到 {platform.upper()} 设备", file=sys.stderr)
+        except Exception as e:
+            print(f"⚠️ 设备连接失败: {e}", file=sys.stderr)
+            self.client = type('MockClient', (), {'platform': platform})()
+            self.tools = None
+        
+        self._initialized = True
+    
+    def _detect_platform(self) -> str:
+        """自动检测设备平台"""
+        platform = os.getenv("MOBILE_PLATFORM", "").lower()
+        if platform in ["android", "ios"]:
+            return platform
+        
+        # 尝试检测 iOS 设备
+        try:
+            from mobile_mcp.core.ios_device_manager_wda import IOSDeviceManagerWDA
+            ios_manager = IOSDeviceManagerWDA()
+            if ios_manager.list_devices():
+                return "ios"
+        except:
+            pass
+        
+        return "android"
+    
+    def get_tools(self):
+        """注册 MCP 工具（20 个）"""
+        tools = []
+        
+        # ==================== 元素定位（优先使用）====================
+        tools.append(Tool(
+            name="mobile_list_elements",
+            description="📋 列出页面所有可交互元素（优先使用！）。返回 resource_id, text, bounds 等。\n\n"
+                       "🎯 定位策略（按优先级）：\n"
+                       "1️⃣ 先调用此工具获取元素列表\n"
+                       "2️⃣ 如果有 text/id，用 mobile_click_by_text 或 mobile_click_by_id\n"
+                       "3️⃣ 如果是游戏/无法获取元素，用截图 + mobile_click_at_coords",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
+        # ==================== 截图（视觉兜底）====================
+        tools.append(Tool(
+            name="mobile_take_screenshot",
+            description="📸 截图（视觉定位用）。返回截图路径和屏幕尺寸。\n\n"
+                       "🎯 使用场景：\n"
+                       "- 游戏（Unity/Cocos）无法获取元素时\n"
+                       "- mobile_list_elements 返回空时\n"
+                       "- 需要确认页面状态时\n\n"
+                       "⚠️ 截图分辨率 = 屏幕分辨率，坐标可直接使用",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string", "description": "截图描述（可选）"}
+                },
+                "required": []
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_get_screen_size",
+            description="📐 获取屏幕尺寸。用于确认坐标范围。",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
+        # ==================== 点击操作 ====================
+        tools.append(Tool(
+            name="mobile_click_by_text",
+            description="👆 通过文本点击（推荐！）。适合有明确文本的按钮。\n"
+                       "✅ 比坐标点击更稳定，不受屏幕分辨率影响",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "元素的文本内容（精确匹配）"}
+                },
+                "required": ["text"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_click_by_id",
+            description="👆 通过 resource-id 点击（推荐！）。需要先用 mobile_list_elements 获取 ID。\n"
+                       "✅ 最稳定的定位方式",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "resource_id": {"type": "string", "description": "元素的 resource-id"}
+                },
+                "required": ["resource_id"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_click_at_coords",
+            description="👆 点击指定坐标（视觉定位用）。配合截图使用。\n\n"
+                       "🎯 使用场景：游戏或无法获取元素时\n"
+                       "⚠️ 坐标 = 截图中的像素坐标，无需转换\n"
+                       "✅ 点击成功后自动等待 0.3 秒",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "x": {"type": "number", "description": "X 坐标（像素）"},
+                    "y": {"type": "number", "description": "Y 坐标（像素）"}
+                },
+                "required": ["x", "y"]
+            }
+        ))
+        
+        # ==================== 输入操作 ====================
+        tools.append(Tool(
+            name="mobile_input_text_by_id",
+            description="⌨️ 在输入框输入文本。需要先用 mobile_list_elements 获取输入框 ID。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "resource_id": {"type": "string", "description": "输入框的 resource-id"},
+                    "text": {"type": "string", "description": "要输入的文本"}
+                },
+                "required": ["resource_id", "text"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_input_at_coords",
+            description="⌨️ 点击坐标后输入文本。适合游戏等无法获取元素 ID 的场景。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "x": {"type": "number", "description": "输入框 X 坐标"},
+                    "y": {"type": "number", "description": "输入框 Y 坐标"},
+                    "text": {"type": "string", "description": "要输入的文本"}
+                },
+                "required": ["x", "y", "text"]
+            }
+        ))
+        
+        # ==================== 导航操作 ====================
+        tools.append(Tool(
+            name="mobile_swipe",
+            description="👆 滑动屏幕。方向：up/down/left/right",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["up", "down", "left", "right"],
+                        "description": "滑动方向"
+                    }
+                },
+                "required": ["direction"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_press_key",
+            description="⌨️ 按键操作。支持：home, back, enter, search",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "按键名称：home, back, enter, search"}
+                },
+                "required": ["key"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_wait",
+            description="⏰ 等待指定时间。用于等待页面加载、动画完成等。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "seconds": {"type": "number", "description": "等待时间（秒）"}
+                },
+                "required": ["seconds"]
+            }
+        ))
+        
+        # ==================== 应用管理 ====================
+        tools.append(Tool(
+            name="mobile_launch_app",
+            description="🚀 启动应用。启动后建议等待 2-3 秒让页面加载。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_name": {"type": "string", "description": "应用包名"}
+                },
+                "required": ["package_name"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_terminate_app",
+            description="⏹️ 终止应用。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_name": {"type": "string", "description": "应用包名"}
+                },
+                "required": ["package_name"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_list_apps",
+            description="📦 列出已安装的应用。可按关键词过滤。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filter": {"type": "string", "description": "过滤关键词（可选）"}
+                },
+                "required": []
+            }
+        ))
+        
+        # ==================== 设备管理 ====================
+        tools.append(Tool(
+            name="mobile_list_devices",
+            description="📱 列出已连接的设备。",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
+        tools.append(Tool(
+            name="mobile_check_connection",
+            description="🔌 检查设备连接状态。",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
+        # ==================== 辅助工具 ====================
+        tools.append(Tool(
+            name="mobile_assert_text",
+            description="✅ 检查页面是否包含指定文本。用于验证操作结果。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "要检查的文本"}
+                },
+                "required": ["text"]
+            }
+        ))
+        
+        # ==================== pytest 脚本生成 ====================
+        tools.append(Tool(
+            name="mobile_get_operation_history",
+            description="📜 获取操作历史记录。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "number", "description": "返回最近的N条记录"}
+                },
+                "required": []
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_clear_operation_history",
+            description="🗑️ 清空操作历史记录。开始新的测试录制前调用。",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
+        tools.append(Tool(
+            name="mobile_generate_test_script",
+            description="📝 生成 pytest 测试脚本。基于操作历史自动生成。\n\n"
+                       "使用流程：\n"
+                       "1. 执行一系列操作\n"
+                       "2. 调用此工具生成脚本\n"
+                       "3. 脚本保存到 tests/ 目录",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "test_name": {"type": "string", "description": "测试用例名称"},
+                    "package_name": {"type": "string", "description": "App 包名"},
+                    "filename": {"type": "string", "description": "脚本文件名（不含 .py）"}
+                },
+                "required": ["test_name", "package_name", "filename"]
+            }
+        ))
+        
+        return tools
+    
+    async def handle_tool_call(self, name: str, arguments: dict):
+        """处理工具调用"""
+        await self.initialize()
+        
+        if not self.tools:
+            return [TextContent(type="text", text="❌ 设备未连接，请检查连接状态")]
+        
+        try:
+            # 截图
+            if name == "mobile_take_screenshot":
+                result = self.tools.take_screenshot(arguments.get("description", ""))
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_get_screen_size":
+                result = self.tools.get_screen_size()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 点击
+            elif name == "mobile_click_at_coords":
+                result = self.tools.click_at_coords(arguments["x"], arguments["y"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_click_by_text":
+                result = self.tools.click_by_text(arguments["text"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_click_by_id":
+                result = self.tools.click_by_id(arguments["resource_id"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 输入
+            elif name == "mobile_input_text_by_id":
+                result = self.tools.input_text_by_id(arguments["resource_id"], arguments["text"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_input_at_coords":
+                result = self.tools.input_at_coords(arguments["x"], arguments["y"], arguments["text"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 导航
+            elif name == "mobile_swipe":
+                result = await self.tools.swipe(arguments["direction"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_press_key":
+                result = await self.tools.press_key(arguments["key"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_wait":
+                result = self.tools.wait(arguments["seconds"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 应用管理
+            elif name == "mobile_launch_app":
+                result = await self.tools.launch_app(arguments["package_name"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_terminate_app":
+                result = self.tools.terminate_app(arguments["package_name"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_list_apps":
+                result = self.tools.list_apps(arguments.get("filter", ""))
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 设备管理
+            elif name == "mobile_list_devices":
+                result = self.tools.list_devices()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_check_connection":
+                result = self.tools.check_connection()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 辅助
+            elif name == "mobile_list_elements":
+                result = self.tools.list_elements()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_assert_text":
+                result = self.tools.assert_text(arguments["text"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 脚本生成
+            elif name == "mobile_get_operation_history":
+                result = self.tools.get_operation_history(arguments.get("limit"))
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_clear_operation_history":
+                result = self.tools.clear_operation_history()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_generate_test_script":
+                result = self.tools.generate_test_script(
+                    arguments["test_name"],
+                    arguments["package_name"],
+                    arguments["filename"]
+                )
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            else:
+                return [TextContent(type="text", text=f"❌ 未知工具: {name}")]
+        
+        except Exception as e:
+            import traceback
+            error_msg = f"❌ 执行失败: {str(e)}\n{traceback.format_exc()}"
+            return [TextContent(type="text", text=error_msg)]
+
+
+async def main():
+    """启动 MCP Server"""
+    server = MobileMCPServer()
+    mcp_server = Server("mobile-mcp")
+    
+    @mcp_server.list_tools()
+    async def list_tools():
+        return server.get_tools()
+    
+    @mcp_server.call_tool()
+    async def call_tool(name: str, arguments: dict):
+        return await server.handle_tool_call(name, arguments)
+    
+    print("🚀 Mobile MCP Server 启动中... [20 个工具]", file=sys.stderr)
+    print("📱 支持 Android / iOS", file=sys.stderr)
+    print("👁️ 完全依赖 Cursor 视觉能力，无需 AI 密钥", file=sys.stderr)
+    
+    async with stdio_server() as (read_stream, write_stream):
+        await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
