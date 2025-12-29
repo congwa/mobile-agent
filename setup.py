@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.2.9",  # 清理重复文件
+    version="2.3.0",  # 优化脚本生成：坐标自动转百分比定位，跨分辨率兼容
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",

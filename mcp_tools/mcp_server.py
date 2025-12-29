@@ -142,11 +142,14 @@ class MobileMCPServer:
         # ==================== 元素定位（优先使用）====================
         tools.append(Tool(
             name="mobile_list_elements",
-            description="📋 列出页面所有可交互元素（优先使用！）。返回 resource_id, text, bounds 等。\n\n"
-                       "🎯 定位策略（按优先级）：\n"
-                       "1️⃣ 先调用此工具获取元素列表\n"
-                       "2️⃣ 如果有 text/id，用 mobile_click_by_text 或 mobile_click_by_id\n"
-                       "3️⃣ 如果是游戏/无法获取元素，用截图 + mobile_click_at_coords",
+            description="📋 列出页面所有可交互元素（⚠️ 录制测试脚本时必须优先调用！）\n\n"
+                       "返回 resource_id, text, bounds 等信息。\n\n"
+                       "🎯 【生成测试脚本时的定位策略】按稳定性排序：\n"
+                       "1️⃣ 【必须】先调用此工具获取元素列表\n"
+                       "2️⃣ 【推荐】有 id → 用 mobile_click_by_id（最稳定）\n"
+                       "3️⃣ 【推荐】有 text → 用 mobile_click_by_text（稳定）\n"
+                       "4️⃣ 【兜底】游戏/无法获取元素 → mobile_click_at_coords（自动转百分比）\n\n"
+                       "💡 优先使用 ID/文本定位，生成的脚本跨设备兼容性更好！",
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
@@ -177,8 +180,10 @@ class MobileMCPServer:
         # ==================== 点击操作 ====================
         tools.append(Tool(
             name="mobile_click_by_text",
-            description="👆 通过文本点击（推荐！）。适合有明确文本的按钮。\n"
-                       "✅ 比坐标点击更稳定，不受屏幕分辨率影响",
+            description="👆 通过文本点击（⭐ 录制脚本时推荐！）\n\n"
+                       "✅ 优势：跨设备兼容，不受屏幕分辨率影响\n"
+                       "📋 使用前请先调用 mobile_list_elements 确认元素有文本\n"
+                       "💡 生成的脚本使用 d(text='...') 定位，稳定可靠",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -190,8 +195,10 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_click_by_id",
-            description="👆 通过 resource-id 点击（推荐！）。需要先用 mobile_list_elements 获取 ID。\n"
-                       "✅ 最稳定的定位方式",
+            description="👆 通过 resource-id 点击（⭐⭐ 录制脚本时最推荐！）\n\n"
+                       "✅ 最稳定的定位方式，跨设备完美兼容\n"
+                       "📋 使用前请先调用 mobile_list_elements 获取元素 ID\n"
+                       "💡 生成的脚本使用 d(resourceId='...') 定位，最稳定",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -203,10 +210,13 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_click_at_coords",
-            description="👆 点击指定坐标（视觉定位用）。配合截图使用。\n\n"
-                       "🎯 使用场景：游戏或无法获取元素时\n"
-                       "⚠️ 坐标 = 截图中的像素坐标，无需转换\n"
-                       "✅ 点击成功后自动等待 0.3 秒",
+            description="👆 点击指定坐标（⚠️ 兜底方案，优先用 ID/文本定位！）\n\n"
+                       "🎯 仅在以下场景使用：\n"
+                       "- 游戏（Unity/Cocos）无法获取元素\n"
+                       "- mobile_list_elements 返回空\n"
+                       "- 元素没有 id 和 text\n\n"
+                       "✅ 自动记录百分比坐标，生成脚本时会转换为跨分辨率兼容的百分比定位\n"
+                       "💡 录制测试脚本时，请先调用 mobile_list_elements 尝试获取元素！",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -214,6 +224,26 @@ class MobileMCPServer:
                     "y": {"type": "number", "description": "Y 坐标（像素）"}
                 },
                 "required": ["x", "y"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_click_by_percent",
+            description="👆 通过百分比位置点击（跨设备兼容！）。\n\n"
+                       "🎯 原理：屏幕左上角是 (0%, 0%)，右下角是 (100%, 100%)\n"
+                       "📐 示例：\n"
+                       "   - (50, 50) = 屏幕正中央\n"
+                       "   - (10, 5) = 左上角附近\n"
+                       "   - (85, 90) = 右下角附近\n\n"
+                       "✅ 优势：同样的百分比在不同分辨率设备上都能点到相同相对位置\n"
+                       "💡 录制一次，多设备回放",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "x_percent": {"type": "number", "description": "X 轴百分比 (0-100)，0=最左，50=中间，100=最右"},
+                    "y_percent": {"type": "number", "description": "Y 轴百分比 (0-100)，0=最上，50=中间，100=最下"}
+                },
+                "required": ["x_percent", "y_percent"]
             }
         ))
         
@@ -364,17 +394,26 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_clear_operation_history",
-            description="🗑️ 清空操作历史记录。开始新的测试录制前调用。",
+            description="🗑️ 清空操作历史记录。\n\n"
+                       "⚠️ 开始新的测试录制前必须调用！\n"
+                       "📋 录制流程：清空历史 → 执行操作（优先用ID/文本定位）→ 生成脚本",
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
         tools.append(Tool(
             name="mobile_generate_test_script",
             description="📝 生成 pytest 测试脚本。基于操作历史自动生成。\n\n"
+                       "⚠️ 【重要】录制操作时请优先使用稳定定位：\n"
+                       "1️⃣ 先调用 mobile_list_elements 获取元素列表\n"
+                       "2️⃣ 优先用 mobile_click_by_id（最稳定，跨设备兼容）\n"
+                       "3️⃣ 其次用 mobile_click_by_text（稳定）\n"
+                       "4️⃣ 最后才用坐标点击（会自动转百分比，跨分辨率兼容）\n\n"
                        "使用流程：\n"
-                       "1. 执行一系列操作\n"
-                       "2. 调用此工具生成脚本\n"
-                       "3. 脚本保存到 tests/ 目录",
+                       "1. 清空历史 mobile_clear_operation_history\n"
+                       "2. 执行操作（优先用 ID/文本定位）\n"
+                       "3. 调用此工具生成脚本\n"
+                       "4. 脚本保存到 tests/ 目录\n\n"
+                       "💡 定位优先级：ID > 文本 > 百分比 > 坐标",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -416,6 +455,10 @@ class MobileMCPServer:
             
             elif name == "mobile_click_by_id":
                 result = self.tools.click_by_id(arguments["resource_id"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_click_by_percent":
+                result = self.tools.click_by_percent(arguments["x_percent"], arguments["y_percent"])
                 return [TextContent(type="text", text=self.format_response(result))]
             
             # 输入

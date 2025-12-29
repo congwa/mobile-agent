@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-移动端客户端 - 类似Web端的MCPClient
+
 
 功能：
 1. 设备连接管理
@@ -28,8 +28,6 @@ from .dynamic_config import DynamicConfig
 
 class MobileClient:
     """
-    移动端客户端 - 类似Web端的MCPClient
-    
     用法:
         client = MobileClient(device_id=None, platform="android")
         await client.launch_app("com.example.app")
