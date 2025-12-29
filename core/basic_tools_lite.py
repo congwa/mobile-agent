@@ -113,7 +113,18 @@ class BasicMobileToolsLite:
                     ratio = max_width / img.width
                     new_w = max_width
                     new_h = int(img.height * ratio)
-                    img = img.resize((new_w, new_h), Image.LANCZOS)
+                    # 兼容不同版本的 Pillow
+                    try:
+                        # Pillow 10.0.0+
+                        resample = Image.Resampling.LANCZOS
+                    except AttributeError:
+                        try:
+                            # Pillow 9.x
+                            resample = Image.LANCZOS
+                        except AttributeError:
+                            # Pillow 旧版本
+                            resample = Image.ANTIALIAS
+                    img = img.resize((new_w, new_h), resample)
                 
                 # 第4步：生成最终文件名（JPEG 格式）
                 if description:
@@ -125,7 +136,17 @@ class BasicMobileToolsLite:
                 final_path = self.screenshot_dir / filename
                 
                 # 第5步：保存为 JPEG（PNG 可能有透明通道，需转 RGB）
-                img = img.convert("RGB")
+                # 先转换为 RGB 模式，处理可能的 RGBA 或 P 模式
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    # 创建白色背景
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'P':
+                        img = img.convert('RGBA')
+                    background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                    img = background
+                elif img.mode != 'RGB':
+                    img = img.convert("RGB")
+                
                 img.save(str(final_path), "JPEG", quality=quality)
                 
                 # 第6步：删除临时 PNG
