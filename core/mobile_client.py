@@ -380,10 +380,12 @@ class MobileClient:
                                         break
                                 
                                 if not found:
-                                    # 🎯 定位失败，自动使用Cursor AI视觉识别（截图分析）
-                                    print(f"  ⚠️  元素'{ref}'未找到，自动使用Cursor AI视觉识别（截图分析）...", file=sys.stderr)
+                                    # 🎯 定位失败，提示用户
+                                    # 注意：CursorVisionHelper 是实验性功能，当前版本建议使用 MCP 方式
+                                    print(f"  ⚠️  元素'{ref}'未找到", file=sys.stderr)
                                     try:
                                         from .locator.cursor_vision_helper import CursorVisionHelper
+                                        print(f"  🔍 尝试使用Cursor AI视觉识别...", file=sys.stderr)
                                         cursor_helper = CursorVisionHelper(self)
                                         # 🎯 传递 auto_analyze=True，自动创建请求文件并等待结果
                                         cursor_result = await cursor_helper.analyze_with_cursor(element, auto_analyze=True)
@@ -415,12 +417,17 @@ class MobileClient:
                                             # 其他情况，抛出异常
                                             screenshot_path = cursor_result.get('screenshot_path', 'unknown') if cursor_result else 'unknown'
                                             raise ValueError(f"Cursor AI分析失败: {screenshot_path}")
+                                    except ImportError:
+                                        # CursorVisionHelper 模块不存在，跳过视觉识别
+                                        print(f"  💡 提示：建议使用 MCP 方式调用，Cursor AI 会自动进行视觉识别", file=sys.stderr)
                                     except ValueError as ve:
                                         if "Cursor AI" in str(ve):
                                             raise ve
                                         print(f"  ⚠️  Cursor视觉识别失败: {ve}", file=sys.stderr)
+                                    except Exception as e:
+                                        print(f"  ⚠️  视觉识别异常: {e}", file=sys.stderr)
                                     
-                                    raise ValueError(f"无法找到元素: {ref}（已等待3秒，并尝试Cursor视觉识别，可能元素不存在）")
+                                    raise ValueError(f"无法找到元素: {ref}（建议使用 MCP 方式，Cursor AI 会自动进行视觉识别）")
             
             # 验证点击（可选）
             page_changed = False
