@@ -1001,39 +1001,45 @@ class BasicMobileToolsLite:
         except Exception as e:
             return [{"error": f"获取元素失败: {e}"}]
     
-    def close_popup(self) -> Dict:
-        """智能关闭弹窗
+    def find_close_button(self) -> Dict:
+        """智能查找关闭按钮（不点击，只返回位置）
         
-        策略：
-        1. 从控件树找可能的关闭按钮（clickable=true，尺寸小，位置靠右上角）
-        2. 如果找到，计算中心点并点击
-        3. 如果没找到，返回需要视觉识别的提示
+        从元素列表中找最可能的关闭按钮，返回其坐标和百分比位置。
+        适用于关闭弹窗广告等场景。
+        
+        Returns:
+            包含关闭按钮位置信息的字典，或截图让 AI 分析
         """
         try:
-            # 获取屏幕尺寸
+            import re
+            
             if self._is_ios():
                 return {"success": False, "message": "iOS 暂不支持，请使用截图+坐标点击"}
             
+            # 获取屏幕尺寸
             screen_width = self.client.u2.info.get('displayWidth', 720)
             screen_height = self.client.u2.info.get('displayHeight', 1280)
             
-            # 获取控件树
+            # 获取元素列表
             xml_string = self.client.u2.dump_hierarchy()
-            elements = self.client.xml_parser.parse(xml_string)
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(xml_string)
             
-            # 找可能的关闭按钮
-            close_candidates = []
-            for elem in elements:
-                if not elem.get('clickable'):
+            # 关闭按钮特征
+            close_texts = ['×', 'X', 'x', '关闭', '取消', 'close', 'Close', '跳过', '知道了', '我知道了']
+            candidates = []
+            
+            for elem in root.iter():
+                text = elem.attrib.get('text', '')
+                content_desc = elem.attrib.get('content-desc', '')
+                bounds_str = elem.attrib.get('bounds', '')
+                class_name = elem.attrib.get('class', '')
+                clickable = elem.attrib.get('clickable', 'false') == 'true'
+                
+                if not bounds_str:
                     continue
                 
-                bounds = elem.get('bounds', '')
-                if not bounds:
-                    continue
-                
-                # 解析 bounds "[x1,y1][x2,y2]"
-                import re
-                match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
                 if not match:
                     continue
                 
@@ -1043,30 +1049,350 @@ class BasicMobileToolsLite:
                 center_x = (x1 + x2) // 2
                 center_y = (y1 + y2) // 2
                 
-                # 关闭按钮特征：尺寸小（30-100px），位置偏右上
-                if 30 <= width <= 100 and 30 <= height <= 100:
-                    # 计算"右上角"得分（越靠右上越高）
-                    right_score = center_x / screen_width  # 0-1，越大越靠右
-                    top_score = 1 - (center_y / screen_height)  # 0-1，越大越靠上
-                    # 只考虑屏幕上半部分、右半部分的按钮
-                    if center_y < screen_height * 0.6 and center_x > screen_width * 0.5:
-                        score = right_score * 0.5 + top_score * 0.5
+                # 计算百分比
+                x_percent = round(center_x / screen_width * 100, 1)
+                y_percent = round(center_y / screen_height * 100, 1)
+                
+                score = 0
+                reason = ""
+                
+                # 策略1：关闭文本
+                if text in close_texts:
+                    score = 100
+                    reason = f"文本='{text}'"
+                
+                # 策略2：content-desc 包含关闭关键词
+                elif any(kw in content_desc.lower() for kw in ['关闭', 'close', 'dismiss', '跳过']):
+                    score = 90
+                    reason = f"描述='{content_desc}'"
+                
+                # 策略3：小尺寸的 clickable 元素（可能是 X 图标）
+                elif clickable:
+                    min_size = max(20, int(screen_width * 0.03))
+                    max_size = max(120, int(screen_width * 0.12))
+                    if min_size <= width <= max_size and min_size <= height <= max_size:
+                        # 基于位置评分：角落位置加分
+                        rel_x = center_x / screen_width
+                        rel_y = center_y / screen_height
+                        
+                        # 右上角得分最高
+                        if rel_x > 0.6 and rel_y < 0.5:
+                            score = 70 + (rel_x - 0.6) * 50 + (0.5 - rel_y) * 50
+                            reason = f"右上角小元素 {width}x{height}px"
+                        # 左上角
+                        elif rel_x < 0.4 and rel_y < 0.5:
+                            score = 60 + (0.4 - rel_x) * 50 + (0.5 - rel_y) * 50
+                            reason = f"左上角小元素 {width}x{height}px"
+                        # 其他位置的小元素
+                        elif 'Image' in class_name:
+                            score = 50
+                            reason = f"图片元素 {width}x{height}px"
+                        else:
+                            score = 40
+                            reason = f"小型可点击元素 {width}x{height}px"
+                
+                if score > 0:
+                    candidates.append({
+                        'score': score,
+                        'reason': reason,
+                        'bounds': bounds_str,
+                        'center_x': center_x,
+                        'center_y': center_y,
+                        'x_percent': x_percent,
+                        'y_percent': y_percent,
+                        'size': f"{width}x{height}"
+                    })
+            
+            if not candidates:
+                # 没找到，截图让 AI 分析
+                screenshot_result = self.take_screenshot(description="找关闭按钮", compress=True)
+                return {
+                    "success": False,
+                    "message": "❌ 元素树未找到关闭按钮，已截图供 AI 分析",
+                    "screenshot": screenshot_result.get("screenshot_path", ""),
+                    "screen_size": {"width": screen_width, "height": screen_height},
+                    "image_size": {
+                        "width": screenshot_result.get("image_width"),
+                        "height": screenshot_result.get("image_height")
+                    },
+                    "original_size": {
+                        "width": screenshot_result.get("original_img_width"),
+                        "height": screenshot_result.get("original_img_height")
+                    },
+                    "tip": "请分析截图找到 X 关闭按钮，然后调用 mobile_click_by_percent(x_percent, y_percent)"
+                }
+            
+            # 按得分排序
+            candidates.sort(key=lambda x: x['score'], reverse=True)
+            best = candidates[0]
+            
+            return {
+                "success": True,
+                "message": f"✅ 找到可能的关闭按钮",
+                "best_candidate": {
+                    "reason": best['reason'],
+                    "center": {"x": best['center_x'], "y": best['center_y']},
+                    "percent": {"x": best['x_percent'], "y": best['y_percent']},
+                    "bounds": best['bounds'],
+                    "size": best['size'],
+                    "score": best['score']
+                },
+                "click_command": f"mobile_click_by_percent({best['x_percent']}, {best['y_percent']})",
+                "other_candidates": [
+                    {"reason": c['reason'], "percent": f"({c['x_percent']}%, {c['y_percent']}%)", "score": c['score']}
+                    for c in candidates[1:4]
+                ] if len(candidates) > 1 else [],
+                "screen_size": {"width": screen_width, "height": screen_height}
+            }
+            
+        except Exception as e:
+            return {"success": False, "message": f"❌ 查找关闭按钮失败: {e}"}
+    
+    def close_popup(self) -> Dict:
+        """智能关闭弹窗（改进版）
+        
+        核心改进：先检测弹窗区域，再在弹窗范围内查找关闭按钮
+        
+        策略（优先级从高到低）：
+        1. 检测弹窗区域（非全屏的大面积容器）
+        2. 在弹窗边界内查找关闭相关的文本/描述（×、X、关闭、close 等）
+        3. 在弹窗边界内查找小尺寸的 clickable 元素（优先边角位置）
+        4. 如果都找不到，截图让 AI 视觉识别
+        
+        适配策略：
+        - X 按钮可能在任意位置（上下左右都支持）
+        - 使用百分比坐标记录，跨分辨率兼容
+        """
+        try:
+            import re
+            import xml.etree.ElementTree as ET
+            
+            # 获取屏幕尺寸
+            if self._is_ios():
+                return {"success": False, "message": "iOS 暂不支持，请使用截图+坐标点击"}
+            
+            screen_width = self.client.u2.info.get('displayWidth', 720)
+            screen_height = self.client.u2.info.get('displayHeight', 1280)
+            
+            # 获取原始 XML
+            xml_string = self.client.u2.dump_hierarchy()
+            
+            # 关闭按钮的文本特征
+            close_texts = ['×', 'X', 'x', '关闭', '取消', 'close', 'Close', 'CLOSE', '跳过', '知道了']
+            close_desc_keywords = ['关闭', 'close', 'dismiss', 'cancel', '跳过']
+            
+            close_candidates = []
+            popup_bounds = None  # 弹窗区域
+            
+            # 解析 XML
+            try:
+                root = ET.fromstring(xml_string)
+                all_elements = list(root.iter())
+                
+                # ===== 第一步：检测弹窗区域 =====
+                # 弹窗特征：非全屏、面积较大、通常在屏幕中央的容器
+                popup_containers = []
+                for idx, elem in enumerate(all_elements):
+                    bounds_str = elem.attrib.get('bounds', '')
+                    class_name = elem.attrib.get('class', '')
+                    
+                    if not bounds_str:
+                        continue
+                    
+                    match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                    if not match:
+                        continue
+                    
+                    x1, y1, x2, y2 = map(int, match.groups())
+                    width = x2 - x1
+                    height = y2 - y1
+                    area = width * height
+                    screen_area = screen_width * screen_height
+                    
+                    # 弹窗容器特征：
+                    # 1. 面积在屏幕的 10%-90% 之间（非全屏）
+                    # 2. 宽度或高度不等于屏幕尺寸
+                    # 3. 是容器类型（Layout/View/Dialog）
+                    is_container = any(kw in class_name for kw in ['Layout', 'View', 'Dialog', 'Card', 'Container'])
+                    area_ratio = area / screen_area
+                    is_not_fullscreen = (width < screen_width * 0.98 or height < screen_height * 0.98)
+                    is_reasonable_size = 0.08 < area_ratio < 0.9
+                    
+                    # 排除状态栏区域（y1 通常很小）
+                    is_below_statusbar = y1 > 50
+                    
+                    if is_container and is_not_fullscreen and is_reasonable_size and is_below_statusbar:
+                        popup_containers.append({
+                            'bounds': (x1, y1, x2, y2),
+                            'bounds_str': bounds_str,
+                            'area': area,
+                            'area_ratio': area_ratio,
+                            'idx': idx,  # 元素在 XML 中的顺序（越后越上层）
+                            'class': class_name
+                        })
+                
+                # 选择最可能的弹窗容器（优先选择：XML 顺序靠后 + 面积适中）
+                if popup_containers:
+                    # 按 XML 顺序倒序（后出现的在上层），然后按面积适中程度排序
+                    popup_containers.sort(key=lambda x: (x['idx'], -abs(x['area_ratio'] - 0.3)), reverse=True)
+                    popup_bounds = popup_containers[0]['bounds']
+                
+                # ===== 第二步：在弹窗范围内查找关闭按钮 =====
+                for idx, elem in enumerate(all_elements):
+                    text = elem.attrib.get('text', '')
+                    content_desc = elem.attrib.get('content-desc', '')
+                    bounds_str = elem.attrib.get('bounds', '')
+                    class_name = elem.attrib.get('class', '')
+                    clickable = elem.attrib.get('clickable', 'false') == 'true'
+                    
+                    if not bounds_str:
+                        continue
+                    
+                    # 解析 bounds
+                    match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                    if not match:
+                        continue
+                    
+                    x1, y1, x2, y2 = map(int, match.groups())
+                    width = x2 - x1
+                    height = y2 - y1
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+                    
+                    # 如果检测到弹窗区域，检查元素是否在弹窗范围内或附近
+                    in_popup = True
+                    popup_edge_bonus = 0
+                    is_floating_close = False  # 是否是浮动关闭按钮（在弹窗外部上方）
+                    if popup_bounds:
+                        px1, py1, px2, py2 = popup_bounds
+                        
+                        # 关闭按钮可能在弹窗外部（常见设计：X 按钮浮在弹窗右上角外侧）
+                        # 扩大搜索范围：弹窗上方 200 像素，右侧 50 像素
+                        margin_top = 200  # 上方扩展范围（关闭按钮常在弹窗上方）
+                        margin_side = 50  # 左右扩展范围
+                        margin_bottom = 30  # 下方扩展范围
+                        
+                        in_popup = (px1 - margin_side <= center_x <= px2 + margin_side and 
+                                   py1 - margin_top <= center_y <= py2 + margin_bottom)
+                        
+                        # 检查是否是浮动关闭按钮（在弹窗外侧：上方或下方）
+                        # 上方浮动关闭按钮（常见：右上角外侧）
+                        if center_y < py1 and center_y > py1 - margin_top:
+                            if center_x > (px1 + px2) / 2:  # 在弹窗右半部分上方
+                                is_floating_close = True
+                        # 下方浮动关闭按钮（常见：底部中间外侧）
+                        elif center_y > py2 and center_y < py2 + margin_top:
+                            # 下方关闭按钮通常在中间位置
+                            if abs(center_x - (px1 + px2) / 2) < (px2 - px1) / 2:
+                                is_floating_close = True
+                        
+                        if in_popup:
+                            # 计算元素是否在弹窗边缘（关闭按钮通常在边缘）
+                            dist_to_top = abs(center_y - py1)
+                            dist_to_bottom = abs(center_y - py2)
+                            dist_to_left = abs(center_x - px1)
+                            dist_to_right = abs(center_x - px2)
+                            min_dist = min(dist_to_top, dist_to_bottom, dist_to_left, dist_to_right)
+                            
+                            # 在弹窗边缘 100 像素内的元素加分
+                            if min_dist < 100:
+                                popup_edge_bonus = 3.0 * (1 - min_dist / 100)
+                        
+                        # 浮动关闭按钮（在弹窗上方外侧）给予高额加分
+                        if is_floating_close:
+                            popup_edge_bonus += 5.0  # 大幅加分
+                    
+                    if not in_popup:
+                        continue
+                    
+                    # 相对位置（0-1）
+                    rel_x = center_x / screen_width
+                    rel_y = center_y / screen_height
+                    
+                    score = 0
+                    match_type = ""
+                    position = self._get_position_name(rel_x, rel_y)
+                    
+                    # ===== 策略1：精确匹配关闭文本（最高优先级）=====
+                    if text in close_texts:
+                        score = 15.0 + popup_edge_bonus
+                        match_type = f"text='{text}'"
+                    
+                    # ===== 策略2：content-desc 包含关闭关键词 =====
+                    elif any(kw in content_desc.lower() for kw in close_desc_keywords):
+                        score = 12.0 + popup_edge_bonus
+                        match_type = f"desc='{content_desc}'"
+                    
+                    # ===== 策略3：clickable 的小尺寸元素（优先于非 clickable）=====
+                    elif clickable:
+                        min_size = max(20, int(screen_width * 0.03))
+                        max_size = max(120, int(screen_width * 0.15))
+                        if min_size <= width <= max_size and min_size <= height <= max_size:
+                            # clickable 元素基础分更高
+                            base_score = 8.0
+                            # 浮动关闭按钮给予最高分
+                            if is_floating_close:
+                                base_score = 12.0
+                                match_type = "floating_close"
+                            elif 'Image' in class_name:
+                                score = base_score + 2.0
+                                match_type = "clickable_image"
+                            else:
+                                match_type = "clickable"
+                            score = base_score + self._get_position_score(rel_x, rel_y) + popup_edge_bonus
+                    
+                    # ===== 策略4：ImageView/ImageButton 类型的小元素（非 clickable）=====
+                    elif 'Image' in class_name:
+                        min_size = max(15, int(screen_width * 0.02))
+                        max_size = max(120, int(screen_width * 0.12))
+                        if min_size <= width <= max_size and min_size <= height <= max_size:
+                            score = 5.0 + self._get_position_score(rel_x, rel_y) + popup_edge_bonus
+                            match_type = "ImageView"
+                    
+                    # XML 顺序加分（后出现的元素在上层，更可能是弹窗内的元素）
+                    if score > 0:
+                        xml_order_bonus = idx / len(all_elements) * 2.0  # 最多加 2 分
+                        score += xml_order_bonus
+                        
                         close_candidates.append({
-                            'bounds': bounds,
+                            'bounds': bounds_str,
                             'center_x': center_x,
                             'center_y': center_y,
                             'width': width,
                             'height': height,
                             'score': score,
-                            'resource_id': elem.get('resource_id', ''),
-                            'text': elem.get('text', '')
+                            'position': position,
+                            'match_type': match_type,
+                            'text': text,
+                            'content_desc': content_desc,
+                            'x_percent': round(rel_x * 100, 1),
+                            'y_percent': round(rel_y * 100, 1),
+                            'in_popup': popup_bounds is not None
                         })
+                        
+            except ET.ParseError:
+                pass
             
             if not close_candidates:
+                # 控件树未找到，自动截全屏图供 AI 分析
+                screenshot_result = self.take_screenshot(description="弹窗全屏", compress=True)
                 return {
                     "success": False,
-                    "message": "❌ 控件树未找到关闭按钮，请使用截图+视觉识别",
-                    "suggestion": "尝试局部截图右上角区域，用 crop_x, crop_y, crop_size 参数"
+                    "message": "❌ 控件树未找到关闭按钮，已截全屏图供 AI 视觉分析",
+                    "action_required": "请分析截图找到 X 关闭按钮位置，然后调用 mobile_click_at_coords",
+                    "screenshot": screenshot_result.get("screenshot_path", ""),
+                    "screen_size": {"width": screen_width, "height": screen_height},
+                    "image_size": {
+                        "width": screenshot_result.get("image_width", screen_width),
+                        "height": screenshot_result.get("image_height", screen_height)
+                    },
+                    "original_size": {
+                        "width": screenshot_result.get("original_img_width", screen_width),
+                        "height": screenshot_result.get("original_img_height", screen_height)
+                    },
+                    "popup_detected": popup_bounds is not None,
+                    "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
+                    "tip": "找到 X 按钮后，直接调用 mobile_click_at_coords(x, y, image_width, image_height, original_img_width, original_img_height)"
                 }
             
             # 按得分排序，取最可能的
@@ -1075,24 +1401,80 @@ class BasicMobileToolsLite:
             
             # 点击
             self.client.u2.click(best['center_x'], best['center_y'])
+            time.sleep(0.3)
             
-            # 记录操作
+            # 记录操作（使用百分比，跨设备兼容）
             self._record_operation(
-                'close_popup',
+                'click',
                 x=best['center_x'],
                 y=best['center_y'],
-                bounds=best['bounds']
+                x_percent=best['x_percent'],
+                y_percent=best['y_percent'],
+                screen_width=screen_width,
+                screen_height=screen_height,
+                ref=f"close_popup_{best['position']}"
             )
             
             return {
                 "success": True,
-                "message": f"✅ 点击关闭按钮: ({best['center_x']}, {best['center_y']})",
+                "message": f"✅ 点击关闭按钮 ({best['position']}): ({best['center_x']}, {best['center_y']})",
+                "match_type": best['match_type'],
                 "bounds": best['bounds'],
-                "candidates_count": len(close_candidates)
+                "position": best['position'],
+                "percent": f"({best['x_percent']}%, {best['y_percent']}%)",
+                "popup_detected": popup_bounds is not None,
+                "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
+                "candidates_count": len(close_candidates),
+                "top_candidates": [
+                    {"position": c['position'], "type": c['match_type'], "score": round(c['score'], 1)}
+                    for c in close_candidates[:3]
+                ]
             }
             
         except Exception as e:
             return {"success": False, "message": f"❌ 关闭弹窗失败: {e}"}
+    
+    def _get_position_name(self, rel_x: float, rel_y: float) -> str:
+        """根据相对坐标获取位置名称"""
+        if rel_y < 0.4:
+            if rel_x > 0.6:
+                return "右上角"
+            elif rel_x < 0.4:
+                return "左上角"
+            else:
+                return "顶部中间"
+        elif rel_y > 0.6:
+            if rel_x > 0.6:
+                return "右下角"
+            elif rel_x < 0.4:
+                return "左下角"
+            else:
+                return "底部中间"
+        else:
+            if rel_x > 0.6:
+                return "右侧"
+            elif rel_x < 0.4:
+                return "左侧"
+            else:
+                return "中间"
+    
+    def _get_position_score(self, rel_x: float, rel_y: float) -> float:
+        """根据位置计算额外得分（角落位置加分更多）"""
+        # 弹窗关闭按钮常见位置得分：右上角 > 左上角 > 底部中间 > 其他角落
+        if rel_y < 0.4:  # 上半部分
+            if rel_x > 0.6:  # 右上角
+                return 2.0 + (rel_x - 0.6) + (0.4 - rel_y)
+            elif rel_x < 0.4:  # 左上角
+                return 1.5 + (0.4 - rel_x) + (0.4 - rel_y)
+            else:  # 顶部中间
+                return 1.0
+        elif rel_y > 0.6:  # 下半部分
+            if 0.3 < rel_x < 0.7:  # 底部中间
+                return 1.2 + (1 - abs(rel_x - 0.5) * 2)
+            else:  # 底部角落
+                return 0.8
+        else:  # 中间区域
+            return 0.5
     
     def assert_text(self, text: str) -> Dict:
         """检查页面是否包含文本"""
