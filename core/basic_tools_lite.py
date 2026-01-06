@@ -176,6 +176,11 @@ class BasicMobileToolsLite:
             
             # ========== 情况2：全屏压缩截图 ==========
             elif compress:
+                # 🔴 关键：记录原始图片尺寸（用于坐标转换）
+                # 注意：截图尺寸可能和 u2.info 的 displayWidth 不一致！
+                original_img_width = img.width
+                original_img_height = img.height
+                
                 # 第3步：缩小尺寸（保持宽高比）
                 image_width, image_height = img.width, img.height
                 
@@ -224,18 +229,19 @@ class BasicMobileToolsLite:
                     "screenshot_path": str(final_path),
                     "screen_width": screen_width,
                     "screen_height": screen_height,
-                    "image_width": image_width,
-                    "image_height": image_height,
+                    "original_img_width": original_img_width,    # 截图原始宽度
+                    "original_img_height": original_img_height,  # 截图原始高度
+                    "image_width": image_width,                  # 压缩后宽度（AI 看到的）
+                    "image_height": image_height,                # 压缩后高度（AI 看到的）
                     "original_size": f"{original_size/1024:.1f}KB",
                     "compressed_size": f"{compressed_size/1024:.1f}KB",
                     "saved_percent": f"{saved_percent:.0f}%",
                     "message": f"📸 截图已保存: {final_path}\n"
-                              f"📐 屏幕尺寸: {screen_width}x{screen_height}\n"
-                              f"🖼️ 图片尺寸: {image_width}x{image_height}（AI 分析用）\n"
+                              f"📐 原始尺寸: {original_img_width}x{original_img_height} → 压缩后: {image_width}x{image_height}\n"
                               f"📦 已压缩: {original_size/1024:.0f}KB → {compressed_size/1024:.0f}KB (省 {saved_percent:.0f}%)\n"
-                              f"⚠️ 【重要】AI 返回的坐标需要转换！\n"
-                              f"   请使用 mobile_click_at_coords 并传入 image_width={image_width}, image_height={image_height}\n"
-                              f"   工具会自动将图片坐标转换为屏幕坐标"
+                              f"⚠️ 【坐标转换】AI 返回坐标后，请传入：\n"
+                              f"   image_width={image_width}, image_height={image_height},\n"
+                              f"   original_img_width={original_img_width}, original_img_height={original_img_height}"
                 }
             
             # ========== 情况3：全屏不压缩截图 ==========
@@ -249,18 +255,21 @@ class BasicMobileToolsLite:
                 final_path = self.screenshot_dir / filename
                 temp_path.rename(final_path)
                 
+                # 不压缩时，用截图实际尺寸（可能和 screen_width 不同）
                 return {
                     "success": True,
                     "screenshot_path": str(final_path),
                     "screen_width": screen_width,
                     "screen_height": screen_height,
-                    "image_width": screen_width,
-                    "image_height": screen_height,
+                    "original_img_width": img.width,   # 截图实际尺寸
+                    "original_img_height": img.height,
+                    "image_width": img.width,          # 未压缩，和原图一样
+                    "image_height": img.height,
                     "file_size": f"{original_size/1024:.1f}KB",
                     "message": f"📸 截图已保存: {final_path}\n"
-                              f"📐 屏幕尺寸: {screen_width}x{screen_height}\n"
+                              f"📐 截图尺寸: {img.width}x{img.height}\n"
                               f"📦 文件大小: {original_size/1024:.0f}KB（未压缩）\n"
-                              f"💡 Cursor 分析图片后，返回的坐标可直接用于 mobile_click_at_coords"
+                              f"💡 未压缩，坐标可直接使用"
                 }
         except ImportError:
             # 如果没有 PIL，回退到原始方式（不压缩）
@@ -341,20 +350,23 @@ class BasicMobileToolsLite:
     # ==================== 点击操作 ====================
     
     def click_at_coords(self, x: int, y: int, image_width: int = 0, image_height: int = 0,
-                        crop_offset_x: int = 0, crop_offset_y: int = 0) -> Dict:
+                        crop_offset_x: int = 0, crop_offset_y: int = 0,
+                        original_img_width: int = 0, original_img_height: int = 0) -> Dict:
         """点击坐标（核心功能，支持自动坐标转换）
         
         Args:
             x: X 坐标（来自截图分析或屏幕坐标）
             y: Y 坐标（来自截图分析或屏幕坐标）
-            image_width: 截图的宽度（可选，传入后自动转换坐标）
-            image_height: 截图的高度（可选，传入后自动转换坐标）
-            crop_offset_x: 局部截图的 X 偏移量（可选，局部截图时传入）
-            crop_offset_y: 局部截图的 Y 偏移量（可选，局部截图时传入）
+            image_width: 压缩后图片宽度（AI 看到的图片尺寸）
+            image_height: 压缩后图片高度（AI 看到的图片尺寸）
+            crop_offset_x: 局部截图的 X 偏移量（局部截图时传入）
+            crop_offset_y: 局部截图的 Y 偏移量（局部截图时传入）
+            original_img_width: 截图原始宽度（压缩前的尺寸，用于精确转换）
+            original_img_height: 截图原始高度（压缩前的尺寸，用于精确转换）
         
         坐标转换说明：
-            1. 全屏压缩截图：传入 image_width/image_height，自动按比例转换
-            2. 局部裁剪截图：传入 crop_offset_x/crop_offset_y，自动加上偏移量
+            1. 全屏压缩截图：AI 坐标 → 原图坐标（基于 image/original_img 比例）
+            2. 局部裁剪截图：AI 坐标 + 偏移量 = 屏幕坐标
         """
         try:
             # 获取屏幕尺寸
@@ -382,13 +394,19 @@ class BasicMobileToolsLite:
                 y = y + crop_offset_y
                 converted = True
                 conversion_type = "crop_offset"
-            # 情况2：全屏压缩截图 - 按比例转换
-            elif image_width > 0 and image_height > 0 and screen_width > 0 and screen_height > 0:
-                if image_width != screen_width or image_height != screen_height:
-                    x = int(x * screen_width / image_width)
-                    y = int(y * screen_height / image_height)
-                    converted = True
-                    conversion_type = "scale"
+            # 情况2：全屏压缩截图 - 按比例转换到原图尺寸
+            elif image_width > 0 and image_height > 0:
+                # 优先使用 original_img_width/height（更精确）
+                # 如果没传，则用 screen_width/height（兼容旧版本）
+                target_width = original_img_width if original_img_width > 0 else screen_width
+                target_height = original_img_height if original_img_height > 0 else screen_height
+                
+                if target_width > 0 and target_height > 0:
+                    if image_width != target_width or image_height != target_height:
+                        x = int(x * target_width / image_width)
+                        y = int(y * target_height / image_height)
+                        converted = True
+                        conversion_type = "scale"
             
             # 执行点击
             if self._is_ios():
@@ -634,7 +652,14 @@ class BasicMobileToolsLite:
     # ==================== 输入操作 ====================
     
     def input_text_by_id(self, resource_id: str, text: str) -> Dict:
-        """通过 resource-id 输入文本"""
+        """通过 resource-id 输入文本
+        
+        优化策略：
+        1. 先用 resourceId 定位
+        2. 如果只有 1 个元素 → 直接输入
+        3. 如果有多个相同 ID（>5个说明 ID 不可靠）→ 改用 EditText 类型定位
+        4. 多个 EditText 时选择最靠上的（搜索框通常在顶部）
+        """
         try:
             if self._is_ios():
                 ios_client = self._get_ios_client()
@@ -649,13 +674,70 @@ class BasicMobileToolsLite:
                         return {"success": True, "message": f"✅ 输入成功: '{text}'"}
                     return {"success": False, "message": f"❌ 输入框不存在: {resource_id}"}
             else:
-                elem = self.client.u2(resourceId=resource_id)
-                if elem.exists(timeout=0.5):
-                    elem.set_text(text)
-                    time.sleep(0.3)
-                    self._record_operation('input', element=resource_id, ref=resource_id, text=text)
-                    return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                elements = self.client.u2(resourceId=resource_id)
+                
+                # 检查是否存在
+                if elements.exists(timeout=0.5):
+                    count = elements.count
+                    
+                    # 只有 1 个元素，直接输入
+                    if count == 1:
+                        elements.set_text(text)
+                        time.sleep(0.3)
+                        self._record_operation('input', element=resource_id, ref=resource_id, text=text)
+                        return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                    
+                    # 多个相同 ID（<=5个），尝试智能选择
+                    if count <= 5:
+                        for i in range(count):
+                            try:
+                                elem = elements[i]
+                                info = elem.info
+                                # 优先选择可编辑的
+                                if info.get('editable') or info.get('focusable'):
+                                    elem.set_text(text)
+                                    time.sleep(0.3)
+                                    self._record_operation('input', element=resource_id, ref=resource_id, text=text)
+                                    return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                            except:
+                                continue
+                        # 没找到可编辑的，用第一个
+                        elements[0].set_text(text)
+                        time.sleep(0.3)
+                        self._record_operation('input', element=resource_id, ref=resource_id, text=text)
+                        return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                
+                # ID 不可靠（不存在或太多），改用 EditText 类型定位
+                edit_texts = self.client.u2(className='android.widget.EditText')
+                if edit_texts.exists(timeout=0.5):
+                    et_count = edit_texts.count
+                    if et_count == 1:
+                        edit_texts.set_text(text)
+                        time.sleep(0.3)
+                        self._record_operation('input', element='EditText', ref='EditText', text=text)
+                        return {"success": True, "message": f"✅ 输入成功: '{text}' (通过 EditText 定位)"}
+                    
+                    # 多个 EditText，选择最靠上的
+                    best_elem = None
+                    min_top = 9999
+                    for i in range(et_count):
+                        try:
+                            elem = edit_texts[i]
+                            top = elem.info.get('bounds', {}).get('top', 9999)
+                            if top < min_top:
+                                min_top = top
+                                best_elem = elem
+                        except:
+                            continue
+                    
+                    if best_elem:
+                        best_elem.set_text(text)
+                        time.sleep(0.3)
+                        self._record_operation('input', element='EditText', ref='EditText', text=text)
+                        return {"success": True, "message": f"✅ 输入成功: '{text}' (通过 EditText 定位，选择最顶部的)"}
+                
                 return {"success": False, "message": f"❌ 输入框不存在: {resource_id}"}
+                    
         except Exception as e:
             return {"success": False, "message": f"❌ 输入失败: {e}"}
     
@@ -918,6 +1000,99 @@ class BasicMobileToolsLite:
                 return result
         except Exception as e:
             return [{"error": f"获取元素失败: {e}"}]
+    
+    def close_popup(self) -> Dict:
+        """智能关闭弹窗
+        
+        策略：
+        1. 从控件树找可能的关闭按钮（clickable=true，尺寸小，位置靠右上角）
+        2. 如果找到，计算中心点并点击
+        3. 如果没找到，返回需要视觉识别的提示
+        """
+        try:
+            # 获取屏幕尺寸
+            if self._is_ios():
+                return {"success": False, "message": "iOS 暂不支持，请使用截图+坐标点击"}
+            
+            screen_width = self.client.u2.info.get('displayWidth', 720)
+            screen_height = self.client.u2.info.get('displayHeight', 1280)
+            
+            # 获取控件树
+            xml_string = self.client.u2.dump_hierarchy()
+            elements = self.client.xml_parser.parse(xml_string)
+            
+            # 找可能的关闭按钮
+            close_candidates = []
+            for elem in elements:
+                if not elem.get('clickable'):
+                    continue
+                
+                bounds = elem.get('bounds', '')
+                if not bounds:
+                    continue
+                
+                # 解析 bounds "[x1,y1][x2,y2]"
+                import re
+                match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                if not match:
+                    continue
+                
+                x1, y1, x2, y2 = map(int, match.groups())
+                width = x2 - x1
+                height = y2 - y1
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+                
+                # 关闭按钮特征：尺寸小（30-100px），位置偏右上
+                if 30 <= width <= 100 and 30 <= height <= 100:
+                    # 计算"右上角"得分（越靠右上越高）
+                    right_score = center_x / screen_width  # 0-1，越大越靠右
+                    top_score = 1 - (center_y / screen_height)  # 0-1，越大越靠上
+                    # 只考虑屏幕上半部分、右半部分的按钮
+                    if center_y < screen_height * 0.6 and center_x > screen_width * 0.5:
+                        score = right_score * 0.5 + top_score * 0.5
+                        close_candidates.append({
+                            'bounds': bounds,
+                            'center_x': center_x,
+                            'center_y': center_y,
+                            'width': width,
+                            'height': height,
+                            'score': score,
+                            'resource_id': elem.get('resource_id', ''),
+                            'text': elem.get('text', '')
+                        })
+            
+            if not close_candidates:
+                return {
+                    "success": False,
+                    "message": "❌ 控件树未找到关闭按钮，请使用截图+视觉识别",
+                    "suggestion": "尝试局部截图右上角区域，用 crop_x, crop_y, crop_size 参数"
+                }
+            
+            # 按得分排序，取最可能的
+            close_candidates.sort(key=lambda x: x['score'], reverse=True)
+            best = close_candidates[0]
+            
+            # 点击
+            self.client.u2.click(best['center_x'], best['center_y'])
+            
+            # 记录操作
+            self._record_operation(
+                'close_popup',
+                x=best['center_x'],
+                y=best['center_y'],
+                bounds=best['bounds']
+            )
+            
+            return {
+                "success": True,
+                "message": f"✅ 点击关闭按钮: ({best['center_x']}, {best['center_y']})",
+                "bounds": best['bounds'],
+                "candidates_count": len(close_candidates)
+            }
+            
+        except Exception as e:
+            return {"success": False, "message": f"❌ 关闭弹窗失败: {e}"}
     
     def assert_text(self, text: str) -> Dict:
         """检查页面是否包含文本"""

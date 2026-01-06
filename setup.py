@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.3.5",  # 新增局部截图功能：精确识别小元素（广告关闭按钮等）
+    version="2.3.7",  # 优化输入定位(多ID元素智能选择) + close_popup + 修复设备重连
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",

@@ -99,7 +99,8 @@ class MobileMCPServer:
     
     async def initialize(self):
         """延迟初始化设备连接"""
-        if self._initialized:
+        # 如果已成功初始化，直接返回
+        if self._initialized and self.tools is not None:
             return
         
         platform = self._detect_platform()
@@ -110,13 +111,13 @@ class MobileMCPServer:
             
             self.client = MobileClient(platform=platform)
             self.tools = BasicMobileToolsLite(self.client)
+            self._initialized = True  # 只在成功时标记
             print(f"📱 已连接到 {platform.upper()} 设备", file=sys.stderr)
         except Exception as e:
-            print(f"⚠️ 设备连接失败: {e}", file=sys.stderr)
-            self.client = type('MockClient', (), {'platform': platform})()
+            print(f"⚠️ 设备连接失败: {e}，下次调用时将重试", file=sys.stderr)
+            self.client = None
             self.tools = None
-        
-        self._initialized = True
+            # 不设置 _initialized = True，下次调用会重试
     
     def _detect_platform(self) -> str:
         """自动检测设备平台"""
@@ -225,17 +226,20 @@ class MobileMCPServer:
                        "- 游戏（Unity/Cocos）无法获取元素\n"
                        "- mobile_list_elements 返回空\n"
                        "- 元素没有 id 和 text\n\n"
-                       "⚠️ 【坐标转换】两种场景：\n"
-                       "   1. 全屏压缩截图：传入 image_width + image_height → 自动按比例转换\n"
-                       "   2. 局部裁剪截图：传入 crop_offset_x + crop_offset_y → 自动加偏移\n\n"
+                       "⚠️ 【坐标转换】截图返回的参数直接传入：\n"
+                       "   - image_width/image_height: 压缩后尺寸（AI 看到的）\n"
+                       "   - original_img_width/original_img_height: 原图尺寸（用于转换）\n"
+                       "   - crop_offset_x/crop_offset_y: 局部截图偏移\n\n"
                        "✅ 自动记录百分比坐标，生成脚本时转换为跨分辨率兼容的百分比定位",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "x": {"type": "number", "description": "X 坐标（像素，来自截图分析或屏幕坐标）"},
-                    "y": {"type": "number", "description": "Y 坐标（像素，来自截图分析或屏幕坐标）"},
-                    "image_width": {"type": "number", "description": "全屏截图宽度（压缩截图时传入）"},
-                    "image_height": {"type": "number", "description": "全屏截图高度（压缩截图时传入）"},
+                    "x": {"type": "number", "description": "X 坐标（来自 AI 分析截图）"},
+                    "y": {"type": "number", "description": "Y 坐标（来自 AI 分析截图）"},
+                    "image_width": {"type": "number", "description": "压缩后图片宽度（截图返回的 image_width）"},
+                    "image_height": {"type": "number", "description": "压缩后图片高度（截图返回的 image_height）"},
+                    "original_img_width": {"type": "number", "description": "原图宽度（截图返回的 original_img_width）"},
+                    "original_img_height": {"type": "number", "description": "原图高度（截图返回的 original_img_height）"},
                     "crop_offset_x": {"type": "number", "description": "局部截图 X 偏移（裁剪截图时传入）"},
                     "crop_offset_y": {"type": "number", "description": "局部截图 Y 偏移（裁剪截图时传入）"}
                 },
@@ -384,6 +388,22 @@ class MobileMCPServer:
         
         # ==================== 辅助工具 ====================
         tools.append(Tool(
+            name="mobile_close_popup",
+            description="""🚫 智能关闭弹窗（推荐！）
+
+自动从控件树识别关闭按钮并点击。
+
+🎯 识别策略：
+1. 找 clickable=true 且尺寸小（30-100px）的元素
+2. 位置在屏幕右上角区域
+3. 计算 bounds 中心点一次点击
+
+✅ 优势：比视觉识别更精准，一次成功率高
+❌ 限制：如果关闭按钮是图片的一部分（无独立控件），需要用截图+坐标点击""",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
+        tools.append(Tool(
             name="mobile_assert_text",
             description="✅ 检查页面是否包含指定文本。用于验证操作结果。",
             inputSchema={
@@ -473,7 +493,9 @@ class MobileMCPServer:
                     arguments.get("image_width", 0),
                     arguments.get("image_height", 0),
                     arguments.get("crop_offset_x", 0),
-                    arguments.get("crop_offset_y", 0)
+                    arguments.get("crop_offset_y", 0),
+                    arguments.get("original_img_width", 0),
+                    arguments.get("original_img_height", 0)
                 )
                 return [TextContent(type="text", text=self.format_response(result))]
             
@@ -536,6 +558,10 @@ class MobileMCPServer:
             # 辅助
             elif name == "mobile_list_elements":
                 result = self.tools.list_elements()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_close_popup":
+                result = self.tools.close_popup()
                 return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_assert_text":
