@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.4.1",  # close_popup改为AI看截图判断是否成功，更智能灵活
+    version="2.4.2",  # iOS依赖更新 + click_by_som提示优化
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
@@ -88,9 +88,10 @@ setup(
             'twine>=4.0.0',
             'build>=0.10.0',
         ],
-        # iOS 支持（可选）
+        # iOS 支持（可选）- tidevice + facebook-wda 方案
         'ios': [
-            'Appium-Python-Client>=3.0.0',
+            'tidevice>=0.11.0',
+            'facebook-wda>=1.4.0',
         ],
         # H5 支持（可选）
         'h5': [

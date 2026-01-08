@@ -5,7 +5,7 @@ Mobile MCP Server - 统一入口
 
 纯 MCP 方案，完全依赖 Cursor 视觉能力：
 - 不需要 AI 密钥
-- 20 个核心工具
+- 24 个核心工具（含 4 个长按工具）
 - 支持 Android 和 iOS
 - 保留 pytest 脚本生成
 
@@ -143,33 +143,27 @@ class MobileMCPServer:
         # ==================== 元素定位（优先使用）====================
         tools.append(Tool(
             name="mobile_list_elements",
-            description="📋 列出页面所有可交互元素（⚠️ 录制测试脚本时必须优先调用！）\n\n"
-                       "返回 resource_id, text, bounds 等信息。\n\n"
-                       "🎯 【生成测试脚本时的定位策略】按稳定性排序：\n"
-                       "1️⃣ 【必须】先调用此工具获取元素列表\n"
-                       "2️⃣ 【推荐】有 id → 用 mobile_click_by_id（最稳定）\n"
-                       "3️⃣ 【推荐】有 text → 用 mobile_click_by_text（稳定）\n"
-                       "4️⃣ 【兜底】游戏/无法获取元素 → mobile_click_at_coords（自动转百分比）\n\n"
-                       "💡 优先使用 ID/文本定位，生成的脚本跨设备兼容性更好！",
+            description="📋 列出页面所有可交互元素\n\n"
+                       "⚠️ 【重要】点击元素前必须先调用此工具！\n"
+                       "如果元素在控件树中存在，使用 click_by_id 或 click_by_text 定位。\n"
+                       "只有当此工具返回空或找不到目标元素时，才使用截图+坐标方式。\n\n"
+                       "📌 控件树定位优势：\n"
+                       "- 实时检测元素是否存在\n"
+                       "- 元素消失时会报错，不会误点击\n"
+                       "- 跨设备兼容性好",
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
         # ==================== 截图（视觉兜底）====================
         tools.append(Tool(
             name="mobile_take_screenshot",
-            description="📸 截图（支持全屏和局部裁剪）\n\n"
-                       "🎯 使用场景：\n"
-                       "- 游戏（Unity/Cocos）无法获取元素时\n"
-                       "- mobile_list_elements 返回空时\n"
-                       "- 需要确认页面状态时\n\n"
-                       "🔍 【局部裁剪】精确识别小元素（如广告关闭按钮）：\n"
-                       "   1. 先全屏截图，AI 返回大概坐标 (600, 200)\n"
-                       "   2. 再调用 crop_x=600, crop_y=200, crop_size=200 截取局部\n"
-                       "   3. 局部图不压缩，AI 可精确识别\n"
-                       "   4. 点击时传入 crop_offset_x/y 自动换算坐标\n\n"
-                       "⚠️ 【重要】截图会被压缩！\n"
-                       "   - 全屏截图：点击时传 image_width/image_height 转换坐标\n"
-                       "   - 局部截图：点击时传 crop_offset_x/crop_offset_y 转换坐标",
+            description="📸 截图查看屏幕内容\n\n"
+                       "⚠️ 【推荐使用 mobile_screenshot_with_som 代替！】\n"
+                       "SoM 截图会给元素标号，AI 可以直接说'点击几号'，更精准！\n\n"
+                       "🎯 本工具仅用于：\n"
+                       "- 快速确认页面状态（不需要点击时）\n"
+                       "- 操作后确认结果\n\n"
+                       "💡 如需点击元素，请用 mobile_screenshot_with_som + mobile_click_by_som",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -188,13 +182,78 @@ class MobileMCPServer:
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
+        tools.append(Tool(
+            name="mobile_screenshot_with_som",
+            description="📸🏷️ Set-of-Mark 截图（⭐⭐ 强烈推荐！默认截图方式）\n\n"
+                       "【智能标注】给每个可点击元素画框+编号，检测弹窗时额外标注可能的X按钮位置（黄色）。\n"
+                       "AI 看图直接说'点击 3 号'，调用 mobile_click_by_som(3) 即可！\n\n"
+                       "🎯 优势：\n"
+                       "- 元素有编号，精准点击不会误触\n"
+                       "- 自动检测弹窗，标注可能的关闭按钮位置\n"
+                       "- 适用于所有页面和所有操作\n\n"
+                       "⚡ 推荐流程：\n"
+                       "1. 任何需要操作的场景，都先调用此工具\n"
+                       "2. 看标注图，找到目标元素编号\n"
+                       "3. 调用 mobile_click_by_som(编号) 精准点击\n"
+                       "4. 🔴【必须】点击后再次截图确认操作是否成功！",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
+        tools.append(Tool(
+            name="mobile_click_by_som",
+            description="🎯 根据 SoM 编号点击元素\n\n"
+                       "配合 mobile_screenshot_with_som 使用。\n"
+                       "看图后直接说'点击 3 号'，调用此函数即可。\n\n"
+                       "⚠️ 【重要】点击后建议再次截图确认操作是否成功！",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "元素编号（从 1 开始，对应截图中的标注数字）"
+                    }
+                },
+                "required": ["index"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_screenshot_with_grid",
+            description="📸📏 带网格坐标的截图（精确定位神器！）\n\n"
+                       "在截图上绘制网格线和坐标刻度，帮助快速定位元素位置。\n"
+                       "如果检测到弹窗，会用绿色圆圈标注可能的关闭按钮位置。\n\n"
+                       "🎯 适用场景：\n"
+                       "- 需要精确知道某个元素的坐标\n"
+                       "- 关闭广告弹窗时定位 X 按钮\n"
+                       "- 元素不在控件树中时的视觉定位\n\n"
+                       "💡 返回信息：\n"
+                       "- 带网格标注的截图\n"
+                       "- 弹窗边界坐标（如果检测到）\n"
+                       "- 可能的关闭按钮位置列表（带优先级）\n\n"
+                       "🔴 【必须】点击后必须再次截图确认操作是否成功！",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "grid_size": {
+                        "type": "integer", 
+                        "description": "网格间距（像素），默认 100。值越小网格越密，建议 50-200"
+                    },
+                    "show_popup_hints": {
+                        "type": "boolean",
+                        "description": "是否显示弹窗关闭按钮提示位置，默认 true"
+                    }
+                },
+                "required": []
+            }
+        ))
+        
         # ==================== 点击操作 ====================
         tools.append(Tool(
             name="mobile_click_by_text",
-            description="👆 通过文本点击（⭐ 录制脚本时推荐！）\n\n"
-                       "✅ 优势：跨设备兼容，不受屏幕分辨率影响\n"
-                       "📋 使用前请先调用 mobile_list_elements 确认元素有文本\n"
-                       "💡 生成的脚本使用 d(text='...') 定位，稳定可靠",
+            description="👆 通过文本点击元素（推荐）\n\n"
+                       "✅ 实时检测元素是否存在，元素不存在会报错\n"
+                       "✅ 不会误点击到其他位置\n"
+                       "📋 使用前先调用 mobile_list_elements 确认元素文本",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -206,10 +265,10 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_click_by_id",
-            description="👆 通过 resource-id 点击（⭐⭐ 录制脚本时最推荐！）\n\n"
-                       "✅ 最稳定的定位方式，跨设备完美兼容\n"
-                       "📋 使用前请先调用 mobile_list_elements 获取元素 ID\n"
-                       "💡 生成的脚本使用 d(resourceId='...') 定位，最稳定",
+            description="👆 通过 resource-id 点击元素（最推荐）\n\n"
+                       "✅ 最稳定的定位方式\n"
+                       "✅ 实时检测元素是否存在，元素不存在会报错\n"
+                       "📋 使用前先调用 mobile_list_elements 获取元素 ID",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -221,16 +280,15 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_click_at_coords",
-            description="👆 点击指定坐标（⚠️ 兜底方案，优先用 ID/文本定位！）\n\n"
-                       "🎯 仅在以下场景使用：\n"
-                       "- 游戏（Unity/Cocos）无法获取元素\n"
-                       "- mobile_list_elements 返回空\n"
-                       "- 元素没有 id 和 text\n\n"
-                       "⚠️ 【坐标转换】截图返回的参数直接传入：\n"
-                       "   - image_width/image_height: 压缩后尺寸（AI 看到的）\n"
-                       "   - original_img_width/original_img_height: 原图尺寸（用于转换）\n"
-                       "   - crop_offset_x/crop_offset_y: 局部截图偏移\n\n"
-                       "✅ 自动记录百分比坐标，生成脚本时转换为跨分辨率兼容的百分比定位",
+            description="👆 点击指定坐标（兜底方案）\n\n"
+                       "⚠️ 【重要】优先使用 mobile_click_by_id 或 mobile_click_by_text！\n"
+                       "仅在 mobile_list_elements 无法获取元素时使用此工具。\n\n"
+                       "⚠️ 【时序限制】截图分析期间页面可能变化：\n"
+                       "- 坐标是基于截图时刻的，点击时页面可能已不同\n"
+                       "- 如果误点击，调用 mobile_press_key(back) 返回\n"
+                       "- 对于定时弹窗（如广告），建议等待其自动消失\n\n"
+                       "📐 坐标转换：截图返回的 image_width/height 等参数直接传入即可\n\n"
+                       "🔴 【必须】点击后必须再次截图确认操作是否成功！",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -256,7 +314,8 @@ class MobileMCPServer:
                        "   - (10, 5) = 左上角附近\n"
                        "   - (85, 90) = 右下角附近\n\n"
                        "✅ 优势：同样的百分比在不同分辨率设备上都能点到相同相对位置\n"
-                       "💡 录制一次，多设备回放",
+                       "💡 录制一次，多设备回放\n\n"
+                       "🔴 【必须】点击后必须再次截图确认操作是否成功！",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -264,6 +323,89 @@ class MobileMCPServer:
                     "y_percent": {"type": "number", "description": "Y 轴百分比 (0-100)，0=最上，50=中间，100=最下"}
                 },
                 "required": ["x_percent", "y_percent"]
+            }
+        ))
+        
+        # ==================== 长按操作 ====================
+        tools.append(Tool(
+            name="mobile_long_press_by_id",
+            description="👆 通过 resource-id 长按（⭐⭐ 最稳定！）\n\n"
+                       "✅ 最稳定的长按定位方式，跨设备完美兼容\n"
+                       "📋 使用前请先调用 mobile_list_elements 获取元素 ID\n"
+                       "💡 生成的脚本使用 d(resourceId='...').long_click() 定位，最稳定",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "resource_id": {"type": "string", "description": "元素的 resource-id"},
+                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"}
+                },
+                "required": ["resource_id"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_long_press_by_text",
+            description="👆 通过文本长按（⭐ 推荐！）\n\n"
+                       "✅ 优势：跨设备兼容，不受屏幕分辨率影响\n"
+                       "📋 使用前请先调用 mobile_list_elements 确认元素有文本\n"
+                       "💡 生成的脚本使用 d(text='...').long_click() 定位，稳定可靠",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "元素的文本内容（精确匹配）"},
+                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"}
+                },
+                "required": ["text"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_long_press_by_percent",
+            description="👆 通过百分比位置长按（跨设备兼容！）\n\n"
+                       "🎯 原理：屏幕左上角是 (0%, 0%)，右下角是 (100%, 100%)\n"
+                       "📐 示例：\n"
+                       "   - (50, 50) = 屏幕正中央\n"
+                       "   - (10, 5) = 左上角附近\n"
+                       "   - (85, 90) = 右下角附近\n\n"
+                       "✅ 优势：同样的百分比在不同分辨率设备上都能长按到相同相对位置\n"
+                       "💡 录制一次，多设备回放",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "x_percent": {"type": "number", "description": "X 轴百分比 (0-100)"},
+                    "y_percent": {"type": "number", "description": "Y 轴百分比 (0-100)"},
+                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"}
+                },
+                "required": ["x_percent", "y_percent"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_long_press_at_coords",
+            description="👆 长按指定坐标（⚠️ 兜底方案，优先用 ID/文本定位！）\n\n"
+                       "🎯 仅在以下场景使用：\n"
+                       "- 游戏（Unity/Cocos）无法获取元素\n"
+                       "- mobile_list_elements 返回空\n"
+                       "- 元素没有 id 和 text\n\n"
+                       "⚠️ 【坐标转换】截图返回的参数直接传入：\n"
+                       "   - image_width/image_height: 压缩后尺寸（AI 看到的）\n"
+                       "   - original_img_width/original_img_height: 原图尺寸（用于转换）\n"
+                       "   - crop_offset_x/crop_offset_y: 局部截图偏移\n\n"
+                       "✅ 自动记录百分比坐标，生成脚本时转换为跨分辨率兼容的百分比定位",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "x": {"type": "number", "description": "X 坐标（来自 AI 分析截图）"},
+                    "y": {"type": "number", "description": "Y 坐标（来自 AI 分析截图）"},
+                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"},
+                    "image_width": {"type": "number", "description": "压缩后图片宽度"},
+                    "image_height": {"type": "number", "description": "压缩后图片高度"},
+                    "original_img_width": {"type": "number", "description": "原图宽度"},
+                    "original_img_height": {"type": "number", "description": "原图高度"},
+                    "crop_offset_x": {"type": "number", "description": "局部截图 X 偏移"},
+                    "crop_offset_y": {"type": "number", "description": "局部截图 Y 偏移"}
+                },
+                "required": ["x", "y"]
             }
         ))
         
@@ -412,20 +554,20 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_close_popup",
-            description="""🚫 智能关闭弹窗（直接点击）
+            description="""🚫 智能关闭弹窗
 
-自动识别并点击关闭按钮，一步完成。
+通过控件树识别并点击关闭按钮（×、关闭、跳过等）。
 
-🎯 识别策略：
-1. 文本匹配：×、X、关闭、取消、跳过 等
-2. 描述匹配：content-desc 包含 close/关闭  
-3. ImageView/ImageButton 小元素
-4. clickable 的小尺寸元素（角落位置优先）
+✅ 控件树有元素时：直接点击，实时可靠
+❌ 控件树无元素时：截图供 AI 分析
 
-⚠️ 如果自动识别失败：
-- 会截图供 AI 分析
-- 用 mobile_find_close_button 先查看候选位置
-- 或用 mobile_click_by_percent 手动点击""",
+⚠️ 【时序限制】如果需要截图分析：
+- 分析期间弹窗可能自动消失
+- 对于定时弹窗（如广告），建议等待其自动消失
+- 点击前可再次截图确认弹窗是否还在
+
+🔴 【必须】点击关闭后，必须再次截图确认弹窗是否真的关闭了！
+如果弹窗仍在，需要尝试其他方法或位置。""",
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
@@ -511,6 +653,21 @@ class MobileMCPServer:
                 result = self.tools.get_screen_size()
                 return [TextContent(type="text", text=self.format_response(result))]
             
+            elif name == "mobile_screenshot_with_grid":
+                result = self.tools.take_screenshot_with_grid(
+                    grid_size=arguments.get("grid_size", 100),
+                    show_popup_hints=arguments.get("show_popup_hints", True)
+                )
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_screenshot_with_som":
+                result = self.tools.take_screenshot_with_som()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_click_by_som":
+                result = self.tools.click_by_som(arguments["index"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
             # 点击
             elif name == "mobile_click_at_coords":
                 result = self.tools.click_at_coords(
@@ -535,6 +692,43 @@ class MobileMCPServer:
             
             elif name == "mobile_click_by_percent":
                 result = self.tools.click_by_percent(arguments["x_percent"], arguments["y_percent"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 长按
+            elif name == "mobile_long_press_by_id":
+                result = self.tools.long_press_by_id(
+                    arguments["resource_id"],
+                    arguments.get("duration", 1.0)
+                )
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_long_press_by_text":
+                result = self.tools.long_press_by_text(
+                    arguments["text"],
+                    arguments.get("duration", 1.0)
+                )
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_long_press_by_percent":
+                result = self.tools.long_press_by_percent(
+                    arguments["x_percent"],
+                    arguments["y_percent"],
+                    arguments.get("duration", 1.0)
+                )
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_long_press_at_coords":
+                result = self.tools.long_press_at_coords(
+                    arguments["x"],
+                    arguments["y"],
+                    arguments.get("duration", 1.0),
+                    arguments.get("image_width", 0),
+                    arguments.get("image_height", 0),
+                    arguments.get("crop_offset_x", 0),
+                    arguments.get("crop_offset_y", 0),
+                    arguments.get("original_img_width", 0),
+                    arguments.get("original_img_height", 0)
+                )
                 return [TextContent(type="text", text=self.format_response(result))]
             
             # 输入
@@ -637,7 +831,7 @@ async def async_main():
     async def call_tool(name: str, arguments: dict):
         return await server.handle_tool_call(name, arguments)
     
-    print("🚀 Mobile MCP Server 启动中... [20 个工具]", file=sys.stderr)
+    print("🚀 Mobile MCP Server 启动中... [24 个工具]", file=sys.stderr)
     print("📱 支持 Android / iOS", file=sys.stderr)
     print("👁️ 完全依赖 Cursor 视觉能力，无需 AI 密钥", file=sys.stderr)
     

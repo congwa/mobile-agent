@@ -53,6 +53,8 @@ class BasicMobileToolsLite:
         }
         self.operation_history.append(record)
     
+    
+    
     # ==================== 截图 ====================
     
     def take_screenshot(self, description: str = "", compress: bool = True, 
@@ -276,6 +278,535 @@ class BasicMobileToolsLite:
             return self._take_screenshot_no_compress(description)
         except Exception as e:
             return {"success": False, "message": f"❌ 截图失败: {e}"}
+    
+    def take_screenshot_with_grid(self, grid_size: int = 100, show_popup_hints: bool = True) -> Dict:
+        """截图并添加网格坐标标注（用于精确定位元素）
+        
+        在截图上绘制网格线和坐标刻度，帮助快速定位元素位置。
+        如果检测到弹窗，会标注弹窗区域和可能的关闭按钮位置。
+        
+        Args:
+            grid_size: 网格间距（像素），默认 100。建议值：50-200
+            show_popup_hints: 是否显示弹窗关闭按钮提示位置，默认 True
+        
+        Returns:
+            包含标注截图路径和弹窗信息的字典
+        """
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            import re
+            
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            platform = "ios" if self._is_ios() else "android"
+            
+            # 第1步：截图
+            temp_filename = f"temp_grid_{timestamp}.png"
+            temp_path = self.screenshot_dir / temp_filename
+            
+            screen_width, screen_height = 0, 0
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    ios_client.wda.screenshot(str(temp_path))
+                    size = ios_client.wda.window_size()
+                    screen_width, screen_height = size[0], size[1]
+                else:
+                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+            else:
+                self.client.u2.screenshot(str(temp_path))
+                info = self.client.u2.info
+                screen_width = info.get('displayWidth', 720)
+                screen_height = info.get('displayHeight', 1280)
+            
+            img = Image.open(temp_path)
+            draw = ImageDraw.Draw(img, 'RGBA')
+            
+            # 尝试加载字体
+            try:
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 14)
+                font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 11)
+            except:
+                font = ImageFont.load_default()
+                font_small = font
+            
+            img_width, img_height = img.size
+            
+            # 第2步：绘制网格线和坐标
+            grid_color = (255, 0, 0, 80)  # 半透明红色
+            text_color = (255, 0, 0, 200)  # 红色文字
+            
+            # 绘制垂直网格线
+            for x in range(0, img_width, grid_size):
+                draw.line([(x, 0), (x, img_height)], fill=grid_color, width=1)
+                # 顶部标注 X 坐标
+                draw.text((x + 2, 2), str(x), fill=text_color, font=font_small)
+            
+            # 绘制水平网格线
+            for y in range(0, img_height, grid_size):
+                draw.line([(0, y), (img_width, y)], fill=grid_color, width=1)
+                # 左侧标注 Y 坐标
+                draw.text((2, y + 2), str(y), fill=text_color, font=font_small)
+            
+            # 第3步：检测弹窗并标注
+            popup_info = None
+            close_positions = []
+            
+            if show_popup_hints and not self._is_ios():
+                try:
+                    import xml.etree.ElementTree as ET
+                    xml_string = self.client.u2.dump_hierarchy()
+                    root = ET.fromstring(xml_string)
+                    
+                    # 检测弹窗区域
+                    popup_bounds = None
+                    for elem in root.iter():
+                        bounds_str = elem.attrib.get('bounds', '')
+                        class_name = elem.attrib.get('class', '')
+                        
+                        if not bounds_str:
+                            continue
+                        
+                        match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                        if not match:
+                            continue
+                        
+                        x1, y1, x2, y2 = map(int, match.groups())
+                        width = x2 - x1
+                        height = y2 - y1
+                        area = width * height
+                        screen_area = screen_width * screen_height
+                        
+                        is_container = any(kw in class_name for kw in ['Layout', 'View', 'Dialog', 'Card'])
+                        area_ratio = area / screen_area if screen_area > 0 else 0
+                        is_not_fullscreen = (width < screen_width * 0.98 or height < screen_height * 0.98)
+                        is_reasonable_size = 0.08 < area_ratio < 0.85
+                        
+                        if is_container and is_not_fullscreen and is_reasonable_size and y1 > 50:
+                            if popup_bounds is None or area > (popup_bounds[2] - popup_bounds[0]) * (popup_bounds[3] - popup_bounds[1]):
+                                popup_bounds = (x1, y1, x2, y2)
+                    
+                    if popup_bounds:
+                        px1, py1, px2, py2 = popup_bounds
+                        
+                        # 绘制弹窗边框（蓝色）
+                        draw.rectangle([px1, py1, px2, py2], outline=(0, 100, 255, 200), width=3)
+                        draw.text((px1 + 5, py1 + 5), f"弹窗区域", fill=(0, 100, 255), font=font)
+                        
+                        # 计算可能的 X 按钮位置
+                        close_positions = [
+                            {"name": "右上角外", "x": px2 - 20, "y": py1 - 35, "priority": 1},
+                            {"name": "右上角内", "x": px2 - 35, "y": py1 + 35, "priority": 2},
+                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 35, "priority": 3},
+                            {"name": "底部下方", "x": (px1 + px2) // 2, "y": py2 + 40, "priority": 4},
+                        ]
+                        
+                        # 绘制可能的 X 按钮位置（绿色圆圈 + 数字）
+                        for i, pos in enumerate(close_positions):
+                            cx, cy = pos["x"], pos["y"]
+                            if 0 <= cx <= img_width and 0 <= cy <= img_height:
+                                # 绿色圆圈
+                                draw.ellipse([cx-15, cy-15, cx+15, cy+15], 
+                                           outline=(0, 255, 0, 200), width=2)
+                                # 数字标注
+                                draw.text((cx-5, cy-8), str(i+1), fill=(0, 255, 0), font=font)
+                                # 坐标标注
+                                draw.text((cx+18, cy-8), f"({cx},{cy})", fill=(0, 255, 0), font=font_small)
+                        
+                        popup_info = {
+                            "bounds": f"[{px1},{py1}][{px2},{py2}]",
+                            "width": px2 - px1,
+                            "height": py2 - py1,
+                            "close_positions": close_positions
+                        }
+                
+                except Exception as e:
+                    pass  # 弹窗检测失败不影响主功能
+            
+            # 第4步：保存标注后的截图
+            filename = f"screenshot_{platform}_grid_{timestamp}.jpg"
+            final_path = self.screenshot_dir / filename
+            
+            # 转换为 RGB 并保存
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert("RGB")
+            
+            img.save(str(final_path), "JPEG", quality=85)
+            temp_path.unlink()
+            
+            result = {
+                "success": True,
+                "screenshot_path": str(final_path),
+                "screen_width": screen_width,
+                "screen_height": screen_height,
+                "image_width": img_width,
+                "image_height": img_height,
+                "grid_size": grid_size,
+                "message": f"📸 网格截图已保存: {final_path}\n"
+                          f"📐 尺寸: {img_width}x{img_height}\n"
+                          f"📏 网格间距: {grid_size}px"
+            }
+            
+            if popup_info:
+                result["popup_detected"] = True
+                result["popup_bounds"] = popup_info["bounds"]
+                result["close_button_hints"] = close_positions
+                result["message"] += f"\n🎯 检测到弹窗: {popup_info['bounds']}"
+                result["message"] += f"\n💡 可能的关闭按钮位置（绿色圆圈标注）："
+                for pos in close_positions:
+                    result["message"] += f"\n   {pos['priority']}. {pos['name']}: ({pos['x']}, {pos['y']})"
+            else:
+                result["popup_detected"] = False
+            
+            return result
+            
+        except ImportError:
+            return {"success": False, "message": "❌ 需要安装 Pillow: pip install Pillow"}
+        except Exception as e:
+            return {"success": False, "message": f"❌ 网格截图失败: {e}"}
+    
+    def take_screenshot_with_som(self) -> Dict:
+        """Set-of-Mark 截图：给每个可点击元素标上数字（超级好用！）
+        
+        在截图上给每个可点击元素画框并标上数字编号。
+        AI 看图后直接说"点击 3 号"，然后调用 click_by_som(3) 即可。
+        
+        Returns:
+            包含标注截图和元素列表的字典
+        """
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            import re
+            
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            platform = "ios" if self._is_ios() else "android"
+            
+            # 第1步：截图
+            temp_filename = f"temp_som_{timestamp}.png"
+            temp_path = self.screenshot_dir / temp_filename
+            
+            screen_width, screen_height = 0, 0
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    ios_client.wda.screenshot(str(temp_path))
+                    size = ios_client.wda.window_size()
+                    screen_width, screen_height = size[0], size[1]
+                else:
+                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+            else:
+                self.client.u2.screenshot(str(temp_path))
+                info = self.client.u2.info
+                screen_width = info.get('displayWidth', 720)
+                screen_height = info.get('displayHeight', 1280)
+            
+            img = Image.open(temp_path)
+            draw = ImageDraw.Draw(img, 'RGBA')
+            img_width, img_height = img.size
+            
+            # 尝试加载字体
+            try:
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
+                font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 12)
+            except:
+                font = ImageFont.load_default()
+                font_small = font
+            
+            # 第2步：获取所有可点击元素
+            elements = []
+            if self._is_ios():
+                # iOS 暂不支持
+                pass
+            else:
+                try:
+                    import xml.etree.ElementTree as ET
+                    xml_string = self.client.u2.dump_hierarchy()
+                    root = ET.fromstring(xml_string)
+                    
+                    for elem in root.iter():
+                        clickable = elem.attrib.get('clickable', 'false') == 'true'
+                        bounds_str = elem.attrib.get('bounds', '')
+                        text = elem.attrib.get('text', '')
+                        content_desc = elem.attrib.get('content-desc', '')
+                        resource_id = elem.attrib.get('resource-id', '')
+                        class_name = elem.attrib.get('class', '')
+                        
+                        if not clickable or not bounds_str:
+                            continue
+                        
+                        match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                        if not match:
+                            continue
+                        
+                        x1, y1, x2, y2 = map(int, match.groups())
+                        width = x2 - x1
+                        height = y2 - y1
+                        
+                        # 过滤太小或太大的元素
+                        if width < 20 or height < 20:
+                            continue
+                        if width >= screen_width * 0.98 and height >= screen_height * 0.5:
+                            continue  # 全屏或大面积容器
+                        
+                        center_x = (x1 + x2) // 2
+                        center_y = (y1 + y2) // 2
+                        
+                        # 生成描述
+                        desc = text or content_desc or resource_id.split('/')[-1] if resource_id else class_name.split('.')[-1]
+                        if len(desc) > 20:
+                            desc = desc[:17] + "..."
+                        
+                        elements.append({
+                            'bounds': (x1, y1, x2, y2),
+                            'center': (center_x, center_y),
+                            'text': text,
+                            'desc': desc,
+                            'resource_id': resource_id
+                        })
+                except Exception as e:
+                    pass
+            
+            # 第3步：在截图上标注元素
+            # 颜色列表（循环使用）
+            colors = [
+                (255, 0, 0),      # 红
+                (0, 255, 0),      # 绿
+                (0, 100, 255),    # 蓝
+                (255, 165, 0),    # 橙
+                (255, 0, 255),    # 紫
+                (0, 255, 255),    # 青
+            ]
+            
+            som_elements = []  # 保存标注信息，供 click_by_som 使用
+            
+            for i, elem in enumerate(elements):
+                x1, y1, x2, y2 = elem['bounds']
+                cx, cy = elem['center']
+                color = colors[i % len(colors)]
+                
+                # 画边框
+                draw.rectangle([x1, y1, x2, y2], outline=color + (200,), width=2)
+                
+                # 画编号标签背景
+                label = str(i + 1)
+                label_w, label_h = 20, 18
+                label_x = x1
+                label_y = max(0, y1 - label_h - 2)
+                draw.rectangle([label_x, label_y, label_x + label_w, label_y + label_h], 
+                             fill=color + (220,))
+                
+                # 画编号文字
+                draw.text((label_x + 4, label_y + 1), label, fill=(255, 255, 255), font=font_small)
+                
+                som_elements.append({
+                    'index': i + 1,
+                    'center': (cx, cy),
+                    'bounds': f"[{x1},{y1}][{x2},{y2}]",
+                    'desc': elem['desc']
+                })
+            
+            # 第3.5步：检测弹窗并标注可能的 X 按钮位置（如果 X 不在元素树中）
+            popup_bounds = None
+            popup_close_hints = []
+            
+            if not self._is_ios():
+                try:
+                    # 检测弹窗区域
+                    for elem in root.iter():
+                        bounds_str = elem.attrib.get('bounds', '')
+                        class_name = elem.attrib.get('class', '')
+                        
+                        if not bounds_str:
+                            continue
+                        
+                        match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                        if not match:
+                            continue
+                        
+                        px1, py1, px2, py2 = map(int, match.groups())
+                        p_width = px2 - px1
+                        p_height = py2 - py1
+                        p_area = p_width * p_height
+                        screen_area = screen_width * screen_height
+                        
+                        is_container = any(kw in class_name for kw in ['Layout', 'View', 'Dialog', 'Card', 'Frame'])
+                        area_ratio = p_area / screen_area if screen_area > 0 else 0
+                        is_not_fullscreen = (p_width < screen_width * 0.99 or p_height < screen_height * 0.95)
+                        # 放宽面积范围：5% - 95%
+                        is_reasonable_size = 0.05 < area_ratio < 0.95
+                        
+                        if is_container and is_not_fullscreen and is_reasonable_size and py1 > 30:
+                            if popup_bounds is None or p_area > (popup_bounds[2] - popup_bounds[0]) * (popup_bounds[3] - popup_bounds[1]):
+                                popup_bounds = (px1, py1, px2, py2)
+                    
+                    # 如果检测到弹窗，始终添加 X 按钮位置提示
+                    if popup_bounds:
+                        px1, py1, px2, py2 = popup_bounds
+                        
+                        # 计算多个可能的 X 按钮位置（基于弹窗边界）
+                        close_positions = [
+                            {"name": "右上内", "x": px2 - 35, "y": py1 + 40},
+                            {"name": "右上外", "x": px2 - 20, "y": py1 - 40},
+                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 40},
+                        ]
+                        
+                        # 用黄色/金色标注这些可能位置（始终显示）
+                        hint_color = (255, 200, 0)  # 金黄色
+                        next_index = len(som_elements) + 1
+                        
+                        for pos in close_positions:
+                            hx, hy = pos["x"], pos["y"]
+                            if 0 <= hx <= img_width and 0 <= hy <= img_height:
+                                # 画圆圈
+                                draw.ellipse([hx-18, hy-18, hx+18, hy+18], 
+                                           outline=hint_color + (255,), width=3)
+                                # 画编号背景
+                                draw.rectangle([hx-10, hy-22, hx+10, hy-6], 
+                                             fill=hint_color + (220,))
+                                # 画编号
+                                draw.text((hx-6, hy-20), str(next_index), 
+                                        fill=(0, 0, 0), font=font_small)
+                                # 标注 "X?"
+                                draw.text((hx-8, hy-5), "X?", fill=hint_color, font=font_small)
+                                
+                                popup_close_hints.append({
+                                    'index': next_index,
+                                    'center': (hx, hy),
+                                    'bounds': f"[{hx-20},{hy-20}][{hx+20},{hy+20}]",
+                                    'desc': f"X?{pos['name']}",
+                                    'is_hint': True
+                                })
+                                next_index += 1
+                        
+                        # 画弹窗边框（蓝色）
+                        draw.rectangle([px1, py1, px2, py2], outline=(0, 150, 255, 180), width=2)
+                
+                except Exception as e:
+                    pass  # 弹窗检测失败不影响主功能
+            
+            # 合并元素列表
+            all_som_elements = som_elements + popup_close_hints
+            
+            # 保存到实例变量，供 click_by_som 使用
+            self._som_elements = all_som_elements
+            
+            # 第4步：保存标注后的截图
+            filename = f"screenshot_{platform}_som_{timestamp}.jpg"
+            final_path = self.screenshot_dir / filename
+            
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert("RGB")
+            
+            img.save(str(final_path), "JPEG", quality=85)
+            temp_path.unlink()
+            
+            # 构建元素列表文字
+            elements_text = "\n".join([
+                f"  [{e['index']}] {e['desc']} → ({e['center'][0]}, {e['center'][1]})"
+                for e in som_elements[:15]  # 只显示前15个
+            ])
+            if len(som_elements) > 15:
+                elements_text += f"\n  ... 还有 {len(som_elements) - 15} 个元素"
+            
+            # 构建弹窗提示文字
+            hints_text = ""
+            if popup_close_hints:
+                hints_text = "\n🎯 检测到弹窗，可能的 X 按钮位置（黄色圆圈）：\n"
+                hints_text += "\n".join([
+                    f"  [{h['index']}] {h['desc']} → ({h['center'][0]}, {h['center'][1]})"
+                    for h in popup_close_hints
+                ])
+            
+            return {
+                "success": True,
+                "screenshot_path": str(final_path),
+                "screen_width": screen_width,
+                "screen_height": screen_height,
+                "image_width": img_width,
+                "image_height": img_height,
+                "element_count": len(all_som_elements),
+                "elements": all_som_elements,
+                "popup_detected": popup_bounds is not None,
+                "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
+                "close_hints": popup_close_hints,
+                "message": f"📸 SoM 截图已保存: {final_path}\n"
+                          f"🏷️ 已标注 {len(all_som_elements)} 个元素（{len(som_elements)} 个可点击 + {len(popup_close_hints)} 个X按钮提示）\n"
+                          f"📋 元素列表：\n{elements_text}{hints_text}\n\n"
+                          f"💡 使用方法：看图后调用 mobile_click_by_som(编号) 点击对应元素"
+            }
+            
+        except ImportError:
+            return {"success": False, "message": "❌ 需要安装 Pillow: pip install Pillow"}
+        except Exception as e:
+            return {"success": False, "message": f"❌ SoM 截图失败: {e}"}
+    
+    def click_by_som(self, index: int) -> Dict:
+        """根据 SoM 编号点击元素
+        
+        配合 take_screenshot_with_som 使用。
+        看图后直接说"点击 3 号"，调用此函数即可。
+        
+        Args:
+            index: 元素编号（从 1 开始）
+        
+        Returns:
+            点击结果
+        """
+        try:
+            if not hasattr(self, '_som_elements') or not self._som_elements:
+                return {
+                    "success": False, 
+                    "message": "❌ 请先调用 mobile_screenshot_with_som 获取元素列表"
+                }
+            
+            # 查找对应编号的元素
+            target = None
+            for elem in self._som_elements:
+                if elem['index'] == index:
+                    target = elem
+                    break
+            
+            if not target:
+                return {
+                    "success": False,
+                    "message": f"❌ 未找到编号 {index} 的元素，有效范围: 1-{len(self._som_elements)}"
+                }
+            
+            # 点击
+            cx, cy = target['center']
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    ios_client.wda.click(cx, cy)
+            else:
+                self.client.u2.click(cx, cy)
+            
+            time.sleep(0.3)
+            
+            return {
+                "success": True,
+                "message": f"✅ 已点击 [{index}] {target['desc']} → ({cx}, {cy})\n💡 建议：再次截图确认操作是否成功",
+                "clicked": {
+                    "index": index,
+                    "desc": target['desc'],
+                    "coords": (cx, cy),
+                    "bounds": target['bounds']
+                }
+            }
+            
+        except Exception as e:
+            return {"success": False, "message": f"❌ 点击失败: {e}\n💡 如果页面已变化，请重新调用 mobile_screenshot_with_som 刷新元素列表"}
     
     def _take_screenshot_no_compress(self, description: str = "") -> Dict:
         """截图（不压缩，PIL 不可用时的备用方案）"""
@@ -648,6 +1179,298 @@ class BasicMobileToolsLite:
                 return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
         except Exception as e:
             return {"success": False, "message": f"❌ 点击失败: {e}"}
+    
+    # ==================== 长按操作 ====================
+    
+    def long_press_at_coords(self, x: int, y: int, duration: float = 1.0,
+                             image_width: int = 0, image_height: int = 0,
+                             crop_offset_x: int = 0, crop_offset_y: int = 0,
+                             original_img_width: int = 0, original_img_height: int = 0) -> Dict:
+        """长按坐标（核心功能，支持自动坐标转换）
+        
+        Args:
+            x: X 坐标（来自截图分析或屏幕坐标）
+            y: Y 坐标（来自截图分析或屏幕坐标）
+            duration: 长按持续时间（秒），默认 1.0
+            image_width: 压缩后图片宽度（AI 看到的图片尺寸）
+            image_height: 压缩后图片高度（AI 看到的图片尺寸）
+            crop_offset_x: 局部截图的 X 偏移量（局部截图时传入）
+            crop_offset_y: 局部截图的 Y 偏移量（局部截图时传入）
+            original_img_width: 截图原始宽度（压缩前的尺寸，用于精确转换）
+            original_img_height: 截图原始高度（压缩前的尺寸，用于精确转换）
+        
+        坐标转换说明：
+            1. 全屏压缩截图：AI 坐标 → 原图坐标（基于 image/original_img 比例）
+            2. 局部裁剪截图：AI 坐标 + 偏移量 = 屏幕坐标
+        """
+        try:
+            # 获取屏幕尺寸
+            screen_width, screen_height = 0, 0
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    size = ios_client.wda.window_size()
+                    screen_width, screen_height = size[0], size[1]
+                else:
+                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+            else:
+                info = self.client.u2.info
+                screen_width = info.get('displayWidth', 0)
+                screen_height = info.get('displayHeight', 0)
+            
+            # 🎯 坐标转换
+            original_x, original_y = x, y
+            converted = False
+            conversion_type = ""
+            
+            # 情况1：局部裁剪截图 - 加上偏移量
+            if crop_offset_x > 0 or crop_offset_y > 0:
+                x = x + crop_offset_x
+                y = y + crop_offset_y
+                converted = True
+                conversion_type = "crop_offset"
+            # 情况2：全屏压缩截图 - 按比例转换到原图尺寸
+            elif image_width > 0 and image_height > 0:
+                target_width = original_img_width if original_img_width > 0 else screen_width
+                target_height = original_img_height if original_img_height > 0 else screen_height
+                
+                if target_width > 0 and target_height > 0:
+                    if image_width != target_width or image_height != target_height:
+                        x = int(x * target_width / image_width)
+                        y = int(y * target_height / image_height)
+                        converted = True
+                        conversion_type = "scale"
+            
+            # 执行长按
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                # iOS 使用 tap_hold 或 swipe 原地实现长按
+                if hasattr(ios_client.wda, 'tap_hold'):
+                    ios_client.wda.tap_hold(x, y, duration=duration)
+                else:
+                    # 兜底：用原地 swipe 模拟长按
+                    ios_client.wda.swipe(x, y, x, y, duration=duration)
+            else:
+                self.client.u2.long_click(x, y, duration=duration)
+            
+            time.sleep(0.3)
+            
+            # 计算百分比坐标（用于跨设备兼容）
+            x_percent = round(x / screen_width * 100, 1) if screen_width > 0 else 0
+            y_percent = round(y / screen_height * 100, 1) if screen_height > 0 else 0
+            
+            # 记录操作
+            self._record_operation(
+                'long_press', 
+                x=x, 
+                y=y, 
+                x_percent=x_percent,
+                y_percent=y_percent,
+                duration=duration,
+                screen_width=screen_width,
+                screen_height=screen_height,
+                ref=f"coords_{x}_{y}"
+            )
+            
+            if converted:
+                if conversion_type == "crop_offset":
+                    return {
+                        "success": True,
+                        "message": f"✅ 长按成功: ({x}, {y}) 持续 {duration}s\n"
+                                  f"   🔍 局部截图坐标转换: ({original_x},{original_y}) + 偏移({crop_offset_x},{crop_offset_y}) → ({x},{y})"
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "message": f"✅ 长按成功: ({x}, {y}) 持续 {duration}s\n"
+                                  f"   📐 坐标已转换: ({original_x},{original_y}) → ({x},{y})\n"
+                                  f"   🖼️ 图片尺寸: {image_width}x{image_height} → 屏幕: {screen_width}x{screen_height}"
+                    }
+            else:
+                return {
+                    "success": True,
+                    "message": f"✅ 长按成功: ({x}, {y}) 持续 {duration}s [相对位置: {x_percent}%, {y_percent}%]"
+                }
+        except Exception as e:
+            return {"success": False, "message": f"❌ 长按失败: {e}"}
+    
+    def long_press_by_percent(self, x_percent: float, y_percent: float, duration: float = 1.0) -> Dict:
+        """通过百分比坐标长按（跨设备兼容）
+        
+        百分比坐标原理：
+        - 屏幕左上角是 (0%, 0%)，右下角是 (100%, 100%)
+        - 屏幕正中央是 (50%, 50%)
+        - 像素坐标 = 屏幕尺寸 × (百分比 / 100)
+        
+        Args:
+            x_percent: X轴百分比 (0-100)，0=最左，50=中间，100=最右
+            y_percent: Y轴百分比 (0-100)，0=最上，50=中间，100=最下
+            duration: 长按持续时间（秒），默认 1.0
+        
+        优势：
+            - 同样的百分比在不同分辨率设备上都能点到相同相对位置
+            - 录制一次，多设备回放
+        """
+        try:
+            # 第1步：获取屏幕尺寸
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    size = ios_client.wda.window_size()
+                    width, height = size[0], size[1]
+                else:
+                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+            else:
+                info = self.client.u2.info
+                width = info.get('displayWidth', 0)
+                height = info.get('displayHeight', 0)
+            
+            if width == 0 or height == 0:
+                return {"success": False, "message": "❌ 无法获取屏幕尺寸"}
+            
+            # 第2步：百分比转像素坐标
+            x = int(width * x_percent / 100)
+            y = int(height * y_percent / 100)
+            
+            # 第3步：执行长按
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if hasattr(ios_client.wda, 'tap_hold'):
+                    ios_client.wda.tap_hold(x, y, duration=duration)
+                else:
+                    ios_client.wda.swipe(x, y, x, y, duration=duration)
+            else:
+                self.client.u2.long_click(x, y, duration=duration)
+            
+            time.sleep(0.3)
+            
+            # 第4步：记录操作
+            self._record_operation(
+                'long_press',
+                x=x,
+                y=y,
+                x_percent=x_percent,
+                y_percent=y_percent,
+                duration=duration,
+                screen_width=width,
+                screen_height=height,
+                ref=f"percent_{x_percent}_{y_percent}"
+            )
+            
+            return {
+                "success": True,
+                "message": f"✅ 百分比长按成功: ({x_percent}%, {y_percent}%) → 像素({x}, {y}) 持续 {duration}s",
+                "screen_size": {"width": width, "height": height},
+                "percent": {"x": x_percent, "y": y_percent},
+                "pixel": {"x": x, "y": y},
+                "duration": duration
+            }
+        except Exception as e:
+            return {"success": False, "message": f"❌ 百分比长按失败: {e}"}
+    
+    def long_press_by_text(self, text: str, duration: float = 1.0) -> Dict:
+        """通过文本长按
+        
+        Args:
+            text: 元素的文本内容（精确匹配）
+            duration: 长按持续时间（秒），默认 1.0
+        """
+        try:
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    elem = ios_client.wda(name=text)
+                    if not elem.exists:
+                        elem = ios_client.wda(label=text)
+                    if elem.exists:
+                        # iOS 元素长按
+                        bounds = elem.bounds
+                        x = int((bounds.x + bounds.x + bounds.width) / 2)
+                        y = int((bounds.y + bounds.y + bounds.height) / 2)
+                        if hasattr(ios_client.wda, 'tap_hold'):
+                            ios_client.wda.tap_hold(x, y, duration=duration)
+                        else:
+                            ios_client.wda.swipe(x, y, x, y, duration=duration)
+                        time.sleep(0.3)
+                        self._record_operation('long_press', element=text, duration=duration, ref=text)
+                        return {"success": True, "message": f"✅ 长按成功: '{text}' 持续 {duration}s"}
+                    return {"success": False, "message": f"❌ 文本不存在: {text}"}
+            else:
+                # 先查 XML 树，找到元素
+                found_elem = self._find_element_in_tree(text)
+                
+                if found_elem:
+                    attr_type = found_elem['attr_type']
+                    attr_value = found_elem['attr_value']
+                    bounds = found_elem.get('bounds')
+                    
+                    # 根据找到的属性类型，使用对应的选择器
+                    if attr_type == 'text':
+                        elem = self.client.u2(text=attr_value)
+                    elif attr_type == 'textContains':
+                        elem = self.client.u2(textContains=attr_value)
+                    elif attr_type == 'description':
+                        elem = self.client.u2(description=attr_value)
+                    elif attr_type == 'descriptionContains':
+                        elem = self.client.u2(descriptionContains=attr_value)
+                    else:
+                        elem = None
+                    
+                    if elem and elem.exists(timeout=1):
+                        elem.long_click(duration=duration)
+                        time.sleep(0.3)
+                        self._record_operation('long_press', element=text, duration=duration, ref=f"{attr_type}:{attr_value}")
+                        return {"success": True, "message": f"✅ 长按成功({attr_type}): '{text}' 持续 {duration}s"}
+                    
+                    # 如果选择器失败，用坐标兜底
+                    if bounds:
+                        x = (bounds[0] + bounds[2]) // 2
+                        y = (bounds[1] + bounds[3]) // 2
+                        self.client.u2.long_click(x, y, duration=duration)
+                        time.sleep(0.3)
+                        self._record_operation('long_press', element=text, x=x, y=y, duration=duration, ref=f"coords:{x},{y}")
+                        return {"success": True, "message": f"✅ 长按成功(坐标兜底): '{text}' @ ({x},{y}) 持续 {duration}s"}
+                
+                return {"success": False, "message": f"❌ 文本不存在: {text}"}
+        except Exception as e:
+            return {"success": False, "message": f"❌ 长按失败: {e}"}
+    
+    def long_press_by_id(self, resource_id: str, duration: float = 1.0) -> Dict:
+        """通过 resource-id 长按
+        
+        Args:
+            resource_id: 元素的 resource-id
+            duration: 长按持续时间（秒），默认 1.0
+        """
+        try:
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    elem = ios_client.wda(id=resource_id)
+                    if not elem.exists:
+                        elem = ios_client.wda(name=resource_id)
+                    if elem.exists:
+                        bounds = elem.bounds
+                        x = int((bounds.x + bounds.x + bounds.width) / 2)
+                        y = int((bounds.y + bounds.y + bounds.height) / 2)
+                        if hasattr(ios_client.wda, 'tap_hold'):
+                            ios_client.wda.tap_hold(x, y, duration=duration)
+                        else:
+                            ios_client.wda.swipe(x, y, x, y, duration=duration)
+                        time.sleep(0.3)
+                        self._record_operation('long_press', element=resource_id, duration=duration, ref=resource_id)
+                        return {"success": True, "message": f"✅ 长按成功: {resource_id} 持续 {duration}s"}
+                    return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
+            else:
+                elem = self.client.u2(resourceId=resource_id)
+                if elem.exists(timeout=0.5):
+                    elem.long_click(duration=duration)
+                    time.sleep(0.3)
+                    self._record_operation('long_press', element=resource_id, duration=duration, ref=resource_id)
+                    return {"success": True, "message": f"✅ 长按成功: {resource_id} 持续 {duration}s"}
+                return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
+        except Exception as e:
+            return {"success": False, "message": f"❌ 长按失败: {e}"}
     
     # ==================== 输入操作 ====================
     
@@ -1374,21 +2197,40 @@ class BasicMobileToolsLite:
                 pass
             
             if not close_candidates:
-                # 控件树未找到，自动截全屏图供 AI 分析
-                screenshot_result = self.take_screenshot(description="弹窗全屏", compress=True)
-                
-                # 构建更详细的视觉分析提示
-                visual_hint = "请仔细查看截图，找到关闭按钮（通常是 × 或 X 图标）。"
+                # 如果检测到弹窗区域，先尝试点击常见的关闭按钮位置
                 if popup_bounds:
                     px1, py1, px2, py2 = popup_bounds
-                    visual_hint += f" 弹窗区域大约在 [{px1},{py1}] 到 [{px2},{py2}]，关闭按钮通常在弹窗的右上角或正上方。"
-                else:
-                    visual_hint += " 关闭按钮通常在屏幕右上角、弹窗右上角、或弹窗下方中间位置。"
+                    
+                    # 常见的关闭按钮位置
+                    try_positions = [
+                        (px2 - 20, py1 - 30, "弹窗正上方"),
+                        (px2 - 30, py1 + 30, "弹窗右上角内"),
+                        (px2 + 20, py1 - 20, "弹窗右上角外"),
+                        ((px1 + px2) // 2, py2 + 40, "弹窗下方中间"),
+                    ]
+                    
+                    for try_x, try_y, position_name in try_positions:
+                        if 0 <= try_x <= screen_width and 0 <= try_y <= screen_height:
+                            self.client.u2.click(try_x, try_y)
+                            time.sleep(0.3)
+                    
+                    # 尝试后截图，让 AI 判断是否成功
+                    screenshot_result = self.take_screenshot("尝试关闭后")
+                    return {
+                        "success": True,
+                        "message": f"✅ 已尝试点击常见关闭按钮位置",
+                        "tried_positions": [p[2] for p in try_positions],
+                        "screenshot": screenshot_result.get("screenshot_path", ""),
+                        "tip": "请查看截图确认弹窗是否已关闭。如果还在，可手动分析截图找到关闭按钮位置。"
+                    }
+                
+                # 没有检测到弹窗区域，截图让 AI 分析
+                screenshot_result = self.take_screenshot(description="页面截图", compress=True)
                 
                 return {
                     "success": False,
-                    "message": "❌ 控件树未找到关闭按钮，已截全屏图供 AI 视觉分析",
-                    "action_required": visual_hint + " 找到后调用 mobile_click_at_coords(x, y, image_width, image_height, original_img_width, original_img_height) 点击。",
+                    "message": "❌ 未检测到弹窗区域，已截图供 AI 分析",
+                    "action_required": "请查看截图找到关闭按钮，调用 mobile_click_at_coords 点击",
                     "screenshot": screenshot_result.get("screenshot_path", ""),
                     "screen_size": {"width": screen_width, "height": screen_height},
                     "image_size": {
@@ -1399,16 +2241,8 @@ class BasicMobileToolsLite:
                         "width": screenshot_result.get("original_img_width", screen_width),
                         "height": screenshot_result.get("original_img_height", screen_height)
                     },
-                    "popup_detected": popup_bounds is not None,
-                    "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
-                    "search_areas": [
-                        "弹窗右上角（最常见）",
-                        "弹窗正上方外侧（浮动X按钮）",
-                        "弹窗下方中间（某些广告）",
-                        "屏幕右上角"
-                    ],
-                    "button_features": "关闭按钮通常是：小圆形/方形图标、灰色或白色、带有 × 或 X 符号",
-                    "tip": "注意：不要点击广告内容区域，只点击关闭按钮"
+                    "search_areas": ["弹窗右上角", "弹窗正上方", "弹窗下方中间", "屏幕右上角"],
+                    "time_warning": "⚠️ 截图分析期间弹窗可能自动消失。如果是定时弹窗，建议等待其自动消失。"
                 }
             
             # 按得分排序，取最可能的
@@ -1632,6 +2466,22 @@ class BasicMobileToolsLite:
             "    return True",
             "",
             "",
+            "def long_press_by_percent(d, x_percent, y_percent, duration=1.0):",
+            '    """',
+            '    百分比长按（跨分辨率兼容）',
+            '    ',
+            '    原理：屏幕左上角 (0%, 0%)，右下角 (100%, 100%)',
+            '    优势：同样的百分比在不同分辨率设备上都能长按到相同相对位置',
+            '    """',
+            "    info = d.info",
+            "    width = info.get('displayWidth', 0)",
+            "    height = info.get('displayHeight', 0)",
+            "    x = int(width * x_percent / 100)",
+            "    y = int(height * y_percent / 100)",
+            "    d.long_click(x, y, duration=duration)",
+            "    return True",
+            "",
+            "",
             "def test_main():",
             "    # 连接设备",
             "    d = u2.connect()",
@@ -1735,6 +2585,48 @@ class BasicMobileToolsLite:
                     # 兜底：无法识别的格式，跳过
                     continue
                 script_lines.append("    time.sleep(0.5)")
+                script_lines.append("    ")
+            
+            elif action == 'long_press':
+                ref = op.get('ref', '')
+                element = op.get('element', '')
+                duration = op.get('duration', 1.0)
+                has_coords = 'x' in op and 'y' in op
+                has_percent = 'x_percent' in op and 'y_percent' in op
+                
+                # 判断 ref 是否为坐标格式
+                is_coords_ref = ref.startswith('coords_') or ref.startswith('coords:')
+                is_percent_ref = ref.startswith('percent_')
+                
+                # 优先级：ID > 文本 > 百分比 > 坐标
+                if ref and (':id/' in ref or ref.startswith('com.')):
+                    # 使用 resource-id
+                    script_lines.append(f"    # 步骤{step_num}: 长按元素 (ID定位，最稳定)")
+                    script_lines.append(f"    d(resourceId='{ref}').long_click(duration={duration})")
+                elif ref and not is_coords_ref and not is_percent_ref and ':' not in ref:
+                    # 使用文本
+                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{ref}' (文本定位)")
+                    script_lines.append(f"    d(text='{ref}').long_click(duration={duration})")
+                elif ref and ':' in ref and not is_coords_ref and not is_percent_ref:
+                    actual_text = ref.split(':', 1)[1] if ':' in ref else ref
+                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{actual_text}' (文本定位)")
+                    script_lines.append(f"    d(text='{actual_text}').long_click(duration={duration})")
+                elif has_percent:
+                    # 使用百分比
+                    x_pct = op['x_percent']
+                    y_pct = op['y_percent']
+                    desc = f" ({element})" if element else ""
+                    script_lines.append(f"    # 步骤{step_num}: 长按位置{desc} (百分比定位，跨分辨率兼容)")
+                    script_lines.append(f"    long_press_by_percent(d, {x_pct}, {y_pct}, duration={duration})  # 原坐标: ({op.get('x', '?')}, {op.get('y', '?')})")
+                elif has_coords:
+                    # 坐标兜底
+                    desc = f" ({element})" if element else ""
+                    script_lines.append(f"    # 步骤{step_num}: 长按坐标{desc} (⚠️ 坐标定位，可能不兼容其他分辨率)")
+                    script_lines.append(f"    d.long_click({op['x']}, {op['y']}, duration={duration})")
+                else:
+                    continue
+                    
+                script_lines.append("    time.sleep(0.5)  # 等待响应")
                 script_lines.append("    ")
             
             elif action == 'swipe':
