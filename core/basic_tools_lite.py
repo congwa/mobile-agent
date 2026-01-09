@@ -392,12 +392,12 @@ class BasicMobileToolsLite:
                         draw.rectangle([px1, py1, px2, py2], outline=(0, 100, 255, 200), width=3)
                         draw.text((px1 + 5, py1 + 5), f"弹窗区域", fill=(0, 100, 255), font=font)
                         
-                        # 计算可能的 X 按钮位置
+                        # 计算可能的 X 按钮位置（优化：更贴近弹窗角落）
                         close_positions = [
-                            {"name": "右上角外", "x": px2 - 20, "y": py1 - 35, "priority": 1},
-                            {"name": "右上角内", "x": px2 - 35, "y": py1 + 35, "priority": 2},
-                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 35, "priority": 3},
-                            {"name": "底部下方", "x": (px1 + px2) // 2, "y": py2 + 40, "priority": 4},
+                            {"name": "右上角内", "x": px2 - 30, "y": py1 + 25, "priority": 1},
+                            {"name": "右上角外", "x": px2 + 15, "y": py1 - 15, "priority": 2},
+                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 25, "priority": 3},
+                            {"name": "底部下方", "x": (px1 + px2) // 2, "y": py2 + 30, "priority": 4},
                         ]
                         
                         # 绘制可能的 X 按钮位置（绿色圆圈 + 数字）
@@ -649,10 +649,11 @@ class BasicMobileToolsLite:
                         px1, py1, px2, py2 = popup_bounds
                         
                         # 计算多个可能的 X 按钮位置（基于弹窗边界）
+                        # 优化：X 按钮通常紧贴弹窗右上角，减小偏移
                         close_positions = [
-                            {"name": "右上内", "x": px2 - 35, "y": py1 + 40},
-                            {"name": "右上外", "x": px2 - 20, "y": py1 - 40},
-                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 40},
+                            {"name": "右上内", "x": px2 - 30, "y": py1 + 25},  # 弹窗内右上角
+                            {"name": "右上外", "x": px2 + 15, "y": py1 - 15},  # 弹窗外右上角
+                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 25},  # 弹窗正上方
                         ]
                         
                         # 用黄色/金色标注这些可能位置（始终显示）
