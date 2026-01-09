@@ -387,17 +387,23 @@ class BasicMobileToolsLite:
                     
                     if popup_bounds:
                         px1, py1, px2, py2 = popup_bounds
+                        popup_width = px2 - px1
+                        popup_height = py2 - py1
                         
                         # 绘制弹窗边框（蓝色）
                         draw.rectangle([px1, py1, px2, py2], outline=(0, 100, 255, 200), width=3)
                         draw.text((px1 + 5, py1 + 5), f"弹窗区域", fill=(0, 100, 255), font=font)
                         
-                        # 计算可能的 X 按钮位置（优化：更贴近弹窗角落）
+                        # 计算可能的 X 按钮位置（基于弹窗尺寸动态计算，适配不同分辨率）
+                        offset_x = max(25, int(popup_width * 0.05))  # 宽度的5%，最小25px
+                        offset_y = max(25, int(popup_height * 0.04))  # 高度的4%，最小25px
+                        outer_offset = max(15, int(popup_width * 0.025))  # 外部偏移
+                        
                         close_positions = [
-                            {"name": "右上角内", "x": px2 - 30, "y": py1 + 25, "priority": 1},
-                            {"name": "右上角外", "x": px2 + 15, "y": py1 - 15, "priority": 2},
-                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 25, "priority": 3},
-                            {"name": "底部下方", "x": (px1 + px2) // 2, "y": py2 + 30, "priority": 4},
+                            {"name": "右上角内", "x": px2 - offset_x, "y": py1 + offset_y, "priority": 1},
+                            {"name": "右上角外", "x": px2 + outer_offset, "y": py1 - outer_offset, "priority": 2},
+                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - offset_y, "priority": 3},
+                            {"name": "底部下方", "x": (px1 + px2) // 2, "y": py2 + offset_y, "priority": 4},
                         ]
                         
                         # 绘制可能的 X 按钮位置（绿色圆圈 + 数字）
@@ -647,13 +653,19 @@ class BasicMobileToolsLite:
                     # 如果检测到弹窗，始终添加 X 按钮位置提示
                     if popup_bounds:
                         px1, py1, px2, py2 = popup_bounds
+                        popup_width = px2 - px1
+                        popup_height = py2 - py1
                         
-                        # 计算多个可能的 X 按钮位置（基于弹窗边界）
-                        # 优化：X 按钮通常紧贴弹窗右上角，减小偏移
+                        # 计算多个可能的 X 按钮位置（基于弹窗尺寸动态计算）
+                        # 使用弹窗尺寸的百分比偏移，适配不同分辨率屏幕
+                        offset_x = max(25, int(popup_width * 0.05))  # 宽度的5%，最小25px
+                        offset_y = max(25, int(popup_height * 0.04))  # 高度的4%，最小25px
+                        outer_offset = max(15, int(popup_width * 0.025))  # 外部偏移
+                        
                         close_positions = [
-                            {"name": "右上内", "x": px2 - 30, "y": py1 + 25},  # 弹窗内右上角
-                            {"name": "右上外", "x": px2 + 15, "y": py1 - 15},  # 弹窗外右上角
-                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - 25},  # 弹窗正上方
+                            {"name": "右上内", "x": px2 - offset_x, "y": py1 + offset_y},  # 弹窗内右上角
+                            {"name": "右上外", "x": px2 + outer_offset, "y": py1 - outer_offset},  # 弹窗外右上角
+                            {"name": "正上方", "x": (px1 + px2) // 2, "y": py1 - offset_y},  # 弹窗正上方
                         ]
                         
                         # 用黄色/金色标注这些可能位置（始终显示）
