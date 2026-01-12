@@ -162,12 +162,14 @@ class MobileMCPServer:
                        "SoM 截图会给元素标号，AI 可以直接说'点击几号'，更精准！\n\n"
                        "🎯 本工具仅用于：\n"
                        "- 快速确认页面状态（不需要点击时）\n"
-                       "- 操作后确认结果\n\n"
+                       "- 操作后确认结果\n"
+                       "- compress=false 时可获取原始分辨率截图（用于添加模板）\n\n"
                        "💡 如需点击元素，请用 mobile_screenshot_with_som + mobile_click_by_som",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "description": {"type": "string", "description": "截图描述（可选）"},
+                    "compress": {"type": "boolean", "description": "是否压缩，默认 true。设为 false 可获取原始分辨率（用于模板添加）", "default": True},
                     "crop_x": {"type": "integer", "description": "局部裁剪中心 X 坐标（屏幕坐标，0 表示不裁剪）"},
                     "crop_y": {"type": "integer", "description": "局部裁剪中心 Y 坐标（屏幕坐标，0 表示不裁剪）"},
                     "crop_size": {"type": "integer", "description": "裁剪区域大小（推荐 200-400，0 表示不裁剪）"}
@@ -629,6 +631,90 @@ class MobileMCPServer:
             }
         ))
         
+        # ==================== 广告弹窗关闭工具 ====================
+        tools.append(Tool(
+            name="mobile_close_ad",
+            description="""🚫 【推荐】智能关闭广告弹窗
+
+专门用于关闭广告弹窗，按优先级自动尝试多种方式：
+
+1️⃣ **控件树查找**（最可靠）
+   - 自动查找"关闭"、"跳过"、"×"等关闭按钮
+   - 找到直接点击，实时可靠
+
+2️⃣ **模板匹配**（次优）
+   - 用 OpenCV 匹配已保存的 X 按钮模板
+   - 需要积累模板库，模板越多成功率越高
+
+3️⃣ **返回截图供 AI 分析**（兜底）
+   - 如果前两步失败，返回截图
+   - AI 分析后用 mobile_click_by_percent 点击
+   - 点击成功后用 mobile_template_add 添加模板（自动学习）
+
+💡 使用流程：
+1. 遇到广告弹窗 → 调用此工具
+2. 如果成功 → 完成
+3. 如果失败 → 看截图找 X → 点击 → 添加模板""",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_template_close",
+            description="""🎯 模板匹配关闭弹窗（仅模板匹配）
+
+只用 OpenCV 模板匹配，不走控件树。
+一般建议用 mobile_close_ad 代替（会自动先查控件树）。
+
+⚙️ 参数：
+- click: 是否点击，默认 true
+- threshold: 匹配阈值 0-1，默认 0.75""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "click": {"type": "boolean", "description": "是否点击，默认 true"},
+                    "threshold": {"type": "number", "description": "匹配阈值 0-1，默认 0.75"}
+                },
+                "required": []
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_template_add",
+            description="""➕ 添加 X 号模板
+
+遇到新样式 X 号时，截图并添加到模板库。
+
+⚙️ 两种方式（二选一）：
+1. 百分比定位（推荐）：提供 x_percent, y_percent, size
+2. 像素定位：提供 screenshot_path, x, y, width, height
+
+📋 流程：
+1. mobile_screenshot_with_grid 查看 X 号位置
+2. 调用此工具添加模板
+3. 下次同样 X 号就能自动匹配
+
+💡 百分比示例：X 在右上角 → x_percent=85, y_percent=12, size=80""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "template_name": {"type": "string", "description": "模板名称"},
+                    "x_percent": {"type": "number", "description": "X号中心水平百分比 (0-100)"},
+                    "y_percent": {"type": "number", "description": "X号中心垂直百分比 (0-100)"},
+                    "size": {"type": "integer", "description": "裁剪正方形边长（像素）"},
+                    "screenshot_path": {"type": "string", "description": "截图路径（像素定位时用）"},
+                    "x": {"type": "integer", "description": "左上角 X 坐标"},
+                    "y": {"type": "integer", "description": "左上角 Y 坐标"},
+                    "width": {"type": "integer", "description": "裁剪宽度"},
+                    "height": {"type": "integer", "description": "裁剪高度"}
+                },
+                "required": ["template_name"]
+            }
+        ))
+        
         return tools
     
     async def handle_tool_call(self, name: str, arguments: dict):
@@ -643,6 +729,7 @@ class MobileMCPServer:
             if name == "mobile_take_screenshot":
                 result = self.tools.take_screenshot(
                     description=arguments.get("description", ""),
+                    compress=arguments.get("compress", True),
                     crop_x=arguments.get("crop_x", 0),
                     crop_y=arguments.get("crop_y", 0),
                     crop_size=arguments.get("crop_size", 0)
@@ -809,6 +896,46 @@ class MobileMCPServer:
                 )
                 return [TextContent(type="text", text=self.format_response(result))]
             
+            # 智能关闭广告弹窗
+            elif name == "mobile_close_ad":
+                result = self.tools.close_ad_popup(auto_learn=True)
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # 模板匹配（精简版）
+            elif name == "mobile_template_close":
+                click = arguments.get("click", True)
+                threshold = arguments.get("threshold", 0.75)
+                if click:
+                    result = self.tools.template_click_close(threshold=threshold)
+                else:
+                    result = self.tools.template_match_close(threshold=threshold)
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_template_add":
+                template_name = arguments["template_name"]
+                # 判断使用哪种方式
+                if "x_percent" in arguments and "y_percent" in arguments:
+                    # 百分比方式
+                    result = self.tools.template_add_by_percent(
+                        arguments["x_percent"],
+                        arguments["y_percent"],
+                        arguments.get("size", 80),
+                        template_name
+                    )
+                elif "screenshot_path" in arguments:
+                    # 像素方式
+                    result = self.tools.template_add(
+                        arguments["screenshot_path"],
+                        arguments["x"],
+                        arguments["y"],
+                        arguments["width"],
+                        arguments["height"],
+                        template_name
+                    )
+                else:
+                    result = {"success": False, "error": "请提供 x_percent/y_percent 或 screenshot_path/x/y/width/height"}
+                return [TextContent(type="text", text=self.format_response(result))]
+            
             else:
                 return [TextContent(type="text", text=f"❌ 未知工具: {name}")]
         
@@ -831,7 +958,7 @@ async def async_main():
     async def call_tool(name: str, arguments: dict):
         return await server.handle_tool_call(name, arguments)
     
-    print("🚀 Mobile MCP Server 启动中... [24 个工具]", file=sys.stderr)
+    print("🚀 Mobile MCP Server 启动中... [26 个工具]", file=sys.stderr)
     print("📱 支持 Android / iOS", file=sys.stderr)
     print("👁️ 完全依赖 Cursor 视觉能力，无需 AI 密钥", file=sys.stderr)
     

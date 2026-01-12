@@ -616,9 +616,8 @@ class BasicMobileToolsLite:
                     'desc': elem['desc']
                 })
             
-            # 第3.5步：检测弹窗并标注可能的 X 按钮位置（如果 X 不在元素树中）
+            # 第3.5步：检测弹窗区域（用于标注）
             popup_bounds = None
-            popup_close_hints = []
             
             if not self._is_ios():
                 try:
@@ -650,69 +649,24 @@ class BasicMobileToolsLite:
                             if popup_bounds is None or p_area > (popup_bounds[2] - popup_bounds[0]) * (popup_bounds[3] - popup_bounds[1]):
                                 popup_bounds = (px1, py1, px2, py2)
                     
-                    # 如果检测到弹窗，始终添加 X 按钮位置提示
+                    # 如果检测到弹窗，标注弹窗边界（不再猜测X按钮位置）
                     if popup_bounds:
                         px1, py1, px2, py2 = popup_bounds
-                        popup_width = px2 - px1
-                        popup_height = py2 - py1
                         
-                        # 计算多个可能的 X 按钮位置（基于弹窗尺寸动态计算）
-                        # 【优化】X按钮有三种常见位置：
-                        # 1. 弹窗边界上方（浮动X按钮）
-                        # 2. 弹窗内靠近顶部边界（内嵌X按钮）
-                        # 3. 弹窗正下方（底部关闭按钮）
-                        offset_x = max(60, int(popup_width * 0.07))   # 宽度7%，距右边界
-                        offset_y_above = max(35, int(popup_height * 0.025))  # 高度2.5%，在顶边界之上
-                        offset_y_near = max(45, int(popup_height * 0.03))    # 高度3%，紧贴顶边界内侧
+                        # 只画弹窗边框（蓝色），不再猜测X按钮位置
+                        draw.rectangle([px1, py1, px2, py2], outline=(0, 150, 255, 180), width=3)
                         
-                        close_positions = [
-                            # 【最高优先级】弹窗内紧贴顶部边界（大多数X按钮在这里）
-                            {"name": "右上角", "x": px2 - offset_x, "y": py1 + offset_y_near},
-                            # 弹窗边界上方（浮动X按钮）
-                            {"name": "右上浮", "x": px2 - offset_x, "y": py1 - offset_y_above},
-                            # 弹窗正下方中间（底部关闭按钮）
-                            {"name": "正下方", "x": (px1 + px2) // 2, "y": py2 + max(50, int(popup_height * 0.04))},
-                        ]
-                        
-                        # 用黄色/金色标注这些可能位置（始终显示）
-                        hint_color = (255, 200, 0)  # 金黄色
-                        next_index = len(som_elements) + 1
-                        
-                        for pos in close_positions:
-                            hx, hy = pos["x"], pos["y"]
-                            if 0 <= hx <= img_width and 0 <= hy <= img_height:
-                                # 画圆圈
-                                draw.ellipse([hx-18, hy-18, hx+18, hy+18], 
-                                           outline=hint_color + (255,), width=3)
-                                # 画编号背景
-                                draw.rectangle([hx-10, hy-22, hx+10, hy-6], 
-                                             fill=hint_color + (220,))
-                                # 画编号
-                                draw.text((hx-6, hy-20), str(next_index), 
-                                        fill=(0, 0, 0), font=font_small)
-                                # 标注 "X?"
-                                draw.text((hx-8, hy-5), "X?", fill=hint_color, font=font_small)
-                                
-                                popup_close_hints.append({
-                                    'index': next_index,
-                                    'center': (hx, hy),
-                                    'bounds': f"[{hx-20},{hy-20}][{hx+20},{hy+20}]",
-                                    'desc': f"X?{pos['name']}",
-                                    'is_hint': True
-                                })
-                                next_index += 1
-                        
-                        # 画弹窗边框（蓝色）
-                        draw.rectangle([px1, py1, px2, py2], outline=(0, 150, 255, 180), width=2)
+                        # 在弹窗边框上标注提示文字
+                        try:
+                            draw.text((px1+5, py1-25), "弹窗区域", fill=(0, 150, 255), font=font_small)
+                        except:
+                            pass
                 
                 except Exception as e:
                     pass  # 弹窗检测失败不影响主功能
             
-            # 合并元素列表
-            all_som_elements = som_elements + popup_close_hints
-            
             # 保存到实例变量，供 click_by_som 使用
-            self._som_elements = all_som_elements
+            self._som_elements = som_elements
             
             # 第4步：保存标注后的截图
             filename = f"screenshot_{platform}_som_{timestamp}.jpg"
@@ -740,12 +694,10 @@ class BasicMobileToolsLite:
             
             # 构建弹窗提示文字
             hints_text = ""
-            if popup_close_hints:
-                hints_text = "\n🎯 检测到弹窗，可能的 X 按钮位置（黄色圆圈）：\n"
-                hints_text += "\n".join([
-                    f"  [{h['index']}] {h['desc']} → ({h['center'][0]}, {h['center'][1]})"
-                    for h in popup_close_hints
-                ])
+            if popup_bounds:
+                hints_text = f"\n🎯 检测到弹窗区域（蓝色边框）\n"
+                hints_text += f"   如需关闭弹窗，请观察图片中的 X 按钮位置\n"
+                hints_text += f"   然后使用 mobile_click_by_percent(x%, y%) 点击"
             
             return {
                 "success": True,
@@ -754,15 +706,16 @@ class BasicMobileToolsLite:
                 "screen_height": screen_height,
                 "image_width": img_width,
                 "image_height": img_height,
-                "element_count": len(all_som_elements),
-                "elements": all_som_elements,
+                "element_count": len(som_elements),
+                "elements": som_elements,
                 "popup_detected": popup_bounds is not None,
                 "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
-                "close_hints": popup_close_hints,
                 "message": f"📸 SoM 截图已保存: {final_path}\n"
-                          f"🏷️ 已标注 {len(all_som_elements)} 个元素（{len(som_elements)} 个可点击 + {len(popup_close_hints)} 个X按钮提示）\n"
+                          f"🏷️ 已标注 {len(som_elements)} 个可点击元素\n"
                           f"📋 元素列表：\n{elements_text}{hints_text}\n\n"
-                          f"💡 使用方法：看图后调用 mobile_click_by_som(编号) 点击对应元素"
+                          f"💡 使用方法：\n"
+                          f"   - 点击标注元素：mobile_click_by_som(编号)\n"
+                          f"   - 点击任意位置：mobile_click_by_percent(x%, y%)"
             }
             
         except ImportError:
@@ -2702,4 +2655,539 @@ class BasicMobileToolsLite:
             "operations_count": len(self.operation_history),
             "preview": script[:500] + "..."
         }
+
+    # ========== 模板匹配功能 ==========
+    
+    def template_match_close(self, screenshot_path: Optional[str] = None, threshold: float = 0.75) -> Dict:
+        """使用模板匹配查找关闭按钮
+        
+        基于 OpenCV 模板匹配，从预设的X号模板库中查找匹配项。
+        比 AI 视觉识别更精准、更快速。
+        
+        Args:
+            screenshot_path: 截图路径（可选，不提供则自动截图）
+            threshold: 匹配阈值 0-1，越高越严格，默认0.75
+            
+        Returns:
+            匹配结果，包含坐标和点击命令
+        """
+        try:
+            from .template_matcher import TemplateMatcher
+            
+            # 如果没有提供截图，先截图
+            if screenshot_path is None:
+                screenshot_result = self.take_screenshot(description="模板匹配", compress=False)
+                screenshot_path = screenshot_result.get("screenshot_path")
+                if not screenshot_path:
+                    return {"success": False, "error": "截图失败"}
+            
+            matcher = TemplateMatcher()
+            result = matcher.find_close_buttons(screenshot_path, threshold)
+            
+            return result
+            
+        except ImportError:
+            return {
+                "success": False,
+                "error": "需要安装 opencv-python: pip install opencv-python"
+            }
+        except Exception as e:
+            return {"success": False, "error": f"模板匹配失败: {e}"}
+    
+    def template_click_close(self, threshold: float = 0.75) -> Dict:
+        """模板匹配并点击关闭按钮（一步到位）
+        
+        截图 -> 模板匹配 -> 点击最佳匹配位置
+        
+        Args:
+            threshold: 匹配阈值 0-1
+            
+        Returns:
+            操作结果
+        """
+        try:
+            # 先截图并匹配
+            match_result = self.template_match_close(threshold=threshold)
+            
+            if not match_result.get("success"):
+                return match_result
+            
+            # 获取最佳匹配的百分比坐标
+            best = match_result.get("best_match", {})
+            x_percent = best.get("percent", {}).get("x")
+            y_percent = best.get("percent", {}).get("y")
+            
+            if x_percent is None or y_percent is None:
+                return {"success": False, "error": "无法获取匹配坐标"}
+            
+            # 点击
+            click_result = self.click_by_percent(x_percent, y_percent)
+            
+            return {
+                "success": True,
+                "message": f"✅ 模板匹配并点击成功",
+                "matched_template": best.get("template"),
+                "confidence": best.get("confidence"),
+                "clicked_position": f"({x_percent}%, {y_percent}%)",
+                "click_result": click_result
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": f"模板点击失败: {e}"}
+    
+    def template_add(self, screenshot_path: str, x: int, y: int, 
+                     width: int, height: int, template_name: str) -> Dict:
+        """从截图中裁剪并添加新模板
+        
+        当遇到新样式的X号时，用此方法添加到模板库。
+        
+        Args:
+            screenshot_path: 截图路径
+            x, y: 裁剪区域左上角坐标
+            width, height: 裁剪区域大小
+            template_name: 模板名称（如 x_circle_gray）
+            
+        Returns:
+            结果
+        """
+        try:
+            from .template_matcher import TemplateMatcher
+            
+            matcher = TemplateMatcher()
+            return matcher.crop_and_add_template(
+                screenshot_path, x, y, width, height, template_name
+            )
+        except ImportError:
+            return {"success": False, "error": "需要安装 opencv-python"}
+        except Exception as e:
+            return {"success": False, "error": f"添加模板失败: {e}"}
+    
+    def template_list(self) -> Dict:
+        """列出所有关闭按钮模板"""
+        try:
+            from .template_matcher import TemplateMatcher
+            
+            matcher = TemplateMatcher()
+            return matcher.list_templates()
+        except ImportError:
+            return {"success": False, "error": "需要安装 opencv-python"}
+        except Exception as e:
+            return {"success": False, "error": f"列出模板失败: {e}"}
+    
+    def template_delete(self, template_name: str) -> Dict:
+        """删除指定模板"""
+        try:
+            from .template_matcher import TemplateMatcher
+            
+            matcher = TemplateMatcher()
+            return matcher.delete_template(template_name)
+        except ImportError:
+            return {"success": False, "error": "需要安装 opencv-python"}
+        except Exception as e:
+            return {"success": False, "error": f"删除模板失败: {e}"}
+    
+    def close_ad_popup(self, auto_learn: bool = True) -> Dict:
+        """智能关闭广告弹窗（专用于广告场景）
+        
+        按优先级尝试：
+        1. 控件树查找关闭按钮（最可靠）
+        2. 模板匹配（需要积累模板库）
+        3. 返回视觉信息供 AI 分析（如果前两步失败）
+        
+        自动学习：
+        - 点击成功后，检查这个 X 是否已在模板库
+        - 如果是新样式，自动裁剪并添加到模板库
+        
+        Args:
+            auto_learn: 是否自动学习新模板（点击成功后检查并保存）
+            
+        Returns:
+            结果字典
+        """
+        import time
+        import re
+        
+        result = {
+            "success": False,
+            "method": None,
+            "message": "",
+            "learned_template": None
+        }
+        
+        if self._is_ios():
+            return {"success": False, "error": "iOS 暂不支持此功能"}
+        
+        try:
+            import xml.etree.ElementTree as ET
+            
+            # ========== 第1步：控件树查找关闭按钮 ==========
+            xml_string = self.client.u2.dump_hierarchy()
+            root = ET.fromstring(xml_string)
+            
+            # 关闭按钮的常见特征
+            close_keywords = ['关闭', '跳过', '×', 'X', 'x', 'close', 'skip', '取消']
+            close_content_desc = ['关闭', '跳过', 'close', 'skip', 'dismiss']
+            
+            close_candidates = []
+            
+            for elem in root.iter():
+                text = elem.attrib.get('text', '').strip()
+                content_desc = elem.attrib.get('content-desc', '').strip()
+                clickable = elem.attrib.get('clickable', 'false') == 'true'
+                bounds_str = elem.attrib.get('bounds', '')
+                resource_id = elem.attrib.get('resource-id', '')
+                
+                if not bounds_str:
+                    continue
+                
+                match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                if not match:
+                    continue
+                
+                x1, y1, x2, y2 = map(int, match.groups())
+                width = x2 - x1
+                height = y2 - y1
+                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                
+                score = 0
+                reason = ""
+                
+                # 文本匹配
+                for kw in close_keywords:
+                    if kw in text:
+                        score += 10
+                        reason = f"文本含'{kw}'"
+                        break
+                
+                # content-desc 匹配
+                for kw in close_content_desc:
+                    if kw.lower() in content_desc.lower():
+                        score += 8
+                        reason = f"描述含'{kw}'"
+                        break
+                
+                # 小尺寸可点击元素（可能是 X 按钮）
+                if clickable and 30 < width < 200 and 30 < height < 200:
+                    screen_width = self.client.u2.info.get('displayWidth', 1440)
+                    screen_height = self.client.u2.info.get('displayHeight', 3200)
+                    
+                    # 在屏幕右半边上半部分，很可能是 X
+                    if cx > screen_width * 0.6 and cy < screen_height * 0.5:
+                        score += 5
+                        reason = reason or "右上角小按钮"
+                    # 在屏幕上半部分的小按钮，也可能是 X
+                    elif cy < screen_height * 0.4:
+                        score += 2
+                        reason = reason or "上部小按钮"
+                
+                # 只要是可点击的小按钮都考虑（即使没有文本）
+                if score > 0 or (clickable and 30 < width < 150 and 30 < height < 150):
+                    if not reason and clickable:
+                        reason = "可点击小按钮"
+                        score = max(score, 1)  # 确保有分数
+                    close_candidates.append({
+                        'score': score,
+                        'reason': reason,
+                        'bounds': (x1, y1, x2, y2),
+                        'center': (cx, cy),
+                        'resource_id': resource_id,
+                        'text': text
+                    })
+            
+            # 按分数排序
+            close_candidates.sort(key=lambda x: x['score'], reverse=True)
+            
+            if close_candidates:
+                best = close_candidates[0]
+                cx, cy = best['center']
+                bounds = best['bounds']
+                
+                # 点击前截图（用于自动学习）
+                pre_screenshot = None
+                if auto_learn:
+                    pre_result = self.take_screenshot(description="关闭前", compress=False)
+                    pre_screenshot = pre_result.get("screenshot_path")
+                
+                # 点击
+                self.click_at_coords(cx, cy)
+                time.sleep(0.5)
+                
+                result["success"] = True
+                result["method"] = "控件树"
+                result["message"] = f"✅ 通过控件树找到关闭按钮并点击\n" \
+                                   f"   位置: ({cx}, {cy})\n" \
+                                   f"   原因: {best['reason']}"
+                
+                # 自动学习：检查这个 X 是否已在模板库，不在就添加
+                if auto_learn and pre_screenshot:
+                    learn_result = self._auto_learn_template(pre_screenshot, bounds)
+                    if learn_result:
+                        result["learned_template"] = learn_result
+                        result["message"] += f"\n📚 自动学习: {learn_result}"
+                
+                return result
+            
+            # ========== 第2步：模板匹配 ==========
+            screenshot_path = None
+            try:
+                from .template_matcher import TemplateMatcher
+                
+                # 截图用于模板匹配
+                screenshot_result = self.take_screenshot(description="模板匹配", compress=False)
+                screenshot_path = screenshot_result.get("screenshot_path")
+                
+                if screenshot_path:
+                    matcher = TemplateMatcher()
+                    match_result = matcher.find_close_buttons(screenshot_path, threshold=0.75)
+                    
+                    # 直接使用最佳匹配（已按置信度排序）
+                    if match_result.get("success") and match_result.get("best_match"):
+                        best = match_result["best_match"]
+                        x_pct = best["percent"]["x"]
+                        y_pct = best["percent"]["y"]
+                        
+                        # 点击
+                        self.click_by_percent(x_pct, y_pct)
+                        time.sleep(0.5)
+                        
+                        result["success"] = True
+                        result["method"] = "模板匹配"
+                        result["message"] = f"✅ 通过模板匹配找到关闭按钮并点击\n" \
+                                           f"   模板: {best.get('template', 'unknown')}\n" \
+                                           f"   置信度: {best.get('confidence', 'N/A')}%\n" \
+                                           f"   位置: ({x_pct:.1f}%, {y_pct:.1f}%)"
+                        return result
+                    
+            except ImportError:
+                pass  # OpenCV 未安装，跳过模板匹配
+            except Exception:
+                pass  # 模板匹配失败，继续下一步
+            
+            # ========== 第3步：返回截图供 AI 分析 ==========
+            if not screenshot_path:
+                screenshot_result = self.take_screenshot(description="需要AI分析", compress=True)
+            
+            result["success"] = False
+            result["method"] = None
+            result["message"] = "❌ 控件树和模板匹配都未找到关闭按钮\n" \
+                               "📸 已截图，请 AI 分析图片中的 X 按钮位置\n" \
+                               "💡 找到后使用 mobile_click_by_percent(x%, y%) 点击"
+            result["screenshot"] = screenshot_result if not screenshot_path else {"screenshot_path": screenshot_path}
+            result["need_ai_analysis"] = True
+            
+            return result
+            
+        except Exception as e:
+            return {"success": False, "error": f"关闭弹窗失败: {e}"}
+    
+    def _detect_popup_region(self, root) -> tuple:
+        """从控件树中检测弹窗区域
+        
+        Args:
+            root: 控件树根元素
+            
+        Returns:
+            弹窗边界 (x1, y1, x2, y2) 或 None
+        """
+        import re
+        
+        screen_width = self.client.u2.info.get('displayWidth', 1440)
+        screen_height = self.client.u2.info.get('displayHeight', 3200)
+        
+        popup_candidates = []
+        
+        for elem in root.iter():
+            bounds_str = elem.attrib.get('bounds', '')
+            if not bounds_str:
+                continue
+            
+            match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+            if not match:
+                continue
+            
+            x1, y1, x2, y2 = map(int, match.groups())
+            width = x2 - x1
+            height = y2 - y1
+            
+            # 弹窗特征：
+            # 1. 不是全屏
+            # 2. 在屏幕中央
+            # 3. 有一定大小
+            is_fullscreen = (width >= screen_width * 0.95 and height >= screen_height * 0.9)
+            is_centered = (x1 > screen_width * 0.05 and x2 < screen_width * 0.95)
+            is_reasonable_size = (width > 200 and height > 200 and 
+                                  width < screen_width * 0.95 and 
+                                  height < screen_height * 0.8)
+            
+            if not is_fullscreen and is_centered and is_reasonable_size:
+                # 计算"弹窗感"分数
+                area = width * height
+                center_x = (x1 + x2) / 2
+                center_y = (y1 + y2) / 2
+                center_dist = abs(center_x - screen_width/2) + abs(center_y - screen_height/2)
+                
+                score = area / 1000 - center_dist / 10
+                popup_candidates.append({
+                    'bounds': (x1, y1, x2, y2),
+                    'score': score
+                })
+        
+        if popup_candidates:
+            # 返回分数最高的弹窗
+            popup_candidates.sort(key=lambda x: x['score'], reverse=True)
+            return popup_candidates[0]['bounds']
+        
+        return None
+
+    def _auto_learn_template(self, screenshot_path: str, bounds: tuple, threshold: float = 0.6) -> str:
+        """自动学习：检查 X 按钮是否已在模板库，不在就添加
+        
+        Args:
+            screenshot_path: 截图路径
+            bounds: X 按钮的边界 (x1, y1, x2, y2)
+            threshold: 判断是否已存在的阈值（高于此值认为已存在）
+            
+        Returns:
+            新模板名称，如果是新模板的话；已存在或失败返回 None
+        """
+        try:
+            from .template_matcher import TemplateMatcher
+            from PIL import Image
+            import time
+            
+            x1, y1, x2, y2 = bounds
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            width = x2 - x1
+            height = y2 - y1
+            
+            # 扩展一点边界，确保裁剪完整
+            padding = max(10, int(max(width, height) * 0.2))
+            
+            # 打开截图
+            img = Image.open(screenshot_path)
+            
+            # 裁剪 X 按钮区域
+            crop_x1 = max(0, x1 - padding)
+            crop_y1 = max(0, y1 - padding)
+            crop_x2 = min(img.width, x2 + padding)
+            crop_y2 = min(img.height, y2 + padding)
+            
+            cropped = img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+            
+            # 保存临时文件用于匹配检查
+            temp_path = self.screenshot_dir / "temp_new_x.png"
+            cropped.save(str(temp_path))
+            
+            # 检查是否已在模板库中（用模板匹配检测相似度）
+            matcher = TemplateMatcher()
+            
+            import cv2
+            new_img = cv2.imread(str(temp_path), cv2.IMREAD_GRAYSCALE)
+            if new_img is None:
+                return None
+            
+            is_new = True
+            for template_file in matcher.template_dir.glob("*.png"):
+                template = cv2.imread(str(template_file), cv2.IMREAD_GRAYSCALE)
+                if template is None:
+                    continue
+                
+                # 将两个图都调整到合适大小，然后用小模板在大图中搜索
+                # 这样比较更接近实际匹配场景
+                
+                # 新图作为搜索区域（稍大一点）
+                new_resized = cv2.resize(new_img, (100, 100))
+                # 模板调整到较小尺寸
+                template_resized = cv2.resize(template, (60, 60))
+                
+                # 在新图中搜索模板
+                result = cv2.matchTemplate(new_resized, template_resized, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                
+                if max_val >= threshold:
+                    is_new = False
+                    break
+            
+            # 清理临时文件
+            if temp_path.exists():
+                temp_path.unlink()
+            
+            if is_new:
+                # 生成唯一模板名
+                timestamp = time.strftime("%m%d_%H%M%S")
+                template_name = f"auto_x_{timestamp}.png"
+                template_path = matcher.template_dir / template_name
+                
+                # 保存新模板
+                cropped.save(str(template_path))
+                
+                return template_name
+            else:
+                return None  # 已存在类似模板
+                
+        except Exception as e:
+            return None  # 学习失败，不影响主流程
+    
+    def template_add_by_percent(self, x_percent: float, y_percent: float, 
+                                 size: int, template_name: str) -> Dict:
+        """通过百分比坐标添加模板（更方便！）
+        
+        自动截图 → 根据百分比位置裁剪 → 保存为模板
+        
+        Args:
+            x_percent: X号中心的水平百分比 (0-100)
+            y_percent: X号中心的垂直百分比 (0-100)
+            size: 裁剪区域大小（正方形边长，像素）
+            template_name: 模板名称
+            
+        Returns:
+            结果
+        """
+        try:
+            from .template_matcher import TemplateMatcher
+            from PIL import Image
+            
+            # 先截图（不带 SoM 标注的干净截图）
+            screenshot_result = self.take_screenshot(description="添加模板", compress=False)
+            screenshot_path = screenshot_result.get("screenshot_path")
+            
+            if not screenshot_path:
+                return {"success": False, "error": "截图失败"}
+            
+            # 读取截图获取尺寸
+            img = Image.open(screenshot_path)
+            img_w, img_h = img.size
+            
+            # 计算中心点像素坐标
+            cx = int(img_w * x_percent / 100)
+            cy = int(img_h * y_percent / 100)
+            
+            # 计算裁剪区域
+            half = size // 2
+            x1 = max(0, cx - half)
+            y1 = max(0, cy - half)
+            x2 = min(img_w, cx + half)
+            y2 = min(img_h, cy + half)
+            
+            # 裁剪并保存
+            cropped = img.crop((x1, y1, x2, y2))
+            
+            matcher = TemplateMatcher()
+            output_path = matcher.template_dir / f"{template_name}.png"
+            cropped.save(str(output_path))
+            
+            return {
+                "success": True,
+                "message": f"✅ 模板已保存: {template_name}",
+                "template_path": str(output_path),
+                "center_percent": f"({x_percent}%, {y_percent}%)",
+                "center_pixel": f"({cx}, {cy})",
+                "crop_region": f"({x1},{y1}) - ({x2},{y2})",
+                "size": f"{cropped.size[0]}x{cropped.size[1]}"
+            }
+            
+        except ImportError as e:
+            return {"success": False, "error": f"需要安装依赖: {e}"}
+        except Exception as e:
+            return {"success": False, "error": f"添加模板失败: {e}"}
 

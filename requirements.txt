@@ -6,6 +6,7 @@ adbutils>=1.2.0
 
 # 图片处理（视觉识别需要）
 Pillow>=10.0.0
+opencv-python>=4.8.0  # 模板匹配，精准识别X号
 
 # 多模态AI支持（可选，用于视觉识别）
 dashscope>=1.10.0  # 通义千问VL
