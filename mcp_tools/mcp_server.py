@@ -89,6 +89,7 @@ class MobileMCPServer:
         self.client = None
         self.tools = None
         self._initialized = False
+        self._last_error = None  # 保存最后一次连接失败的错误
     
     @staticmethod
     def format_response(result) -> str:
@@ -114,9 +115,11 @@ class MobileMCPServer:
             self._initialized = True  # 只在成功时标记
             print(f"📱 已连接到 {platform.upper()} 设备", file=sys.stderr)
         except Exception as e:
-            print(f"⚠️ 设备连接失败: {e}，下次调用时将重试", file=sys.stderr)
+            error_msg = str(e)
+            print(f"⚠️ 设备连接失败: {error_msg}，下次调用时将重试", file=sys.stderr)
             self.client = None
             self.tools = None
+            self._last_error = error_msg  # 保存错误信息
             # 不设置 _initialized = True，下次调用会重试
     
     def _detect_platform(self) -> str:
@@ -722,7 +725,20 @@ class MobileMCPServer:
         await self.initialize()
         
         if not self.tools:
-            return [TextContent(type="text", text="❌ 设备未连接，请检查连接状态")]
+            # 提供详细的错误信息和解决方案
+            error_detail = self._last_error or "未知错误"
+            help_msg = (
+                f"❌ 设备连接失败\n\n"
+                f"错误详情: {error_detail}\n\n"
+                f"🔧 解决方案:\n"
+                f"1. 检查 USB 连接: adb devices\n"
+                f"2. 重启 adb: adb kill-server && adb start-server\n"
+                f"3. 初始化 uiautomator2: python -m uiautomator2 init\n"
+                f"4. 手机上允许 USB 调试授权\n"
+                f"5. 确保手机已解锁\n\n"
+                f"完成后请重试操作。"
+            )
+            return [TextContent(type="text", text=help_msg)]
         
         try:
             # 截图
