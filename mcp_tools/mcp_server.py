@@ -34,9 +34,21 @@ from pathlib import Path
 from typing import Optional
 
 # 添加项目根目录到 Python 路径
-# __file__ 在 mcp/ 目录下，需要往上两级到项目根目录
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# 支持两种运行方式：
+# 1. 从源码运行：__file__ 在 mcp_tools/ 目录下，往上两级到项目根目录
+# 2. 从已安装包运行：包已安装时，mobile_mcp 应该可以直接导入
+# 先尝试从已安装的包导入，如果失败则从源码路径导入
+try:
+    # 尝试导入已安装的包
+    import mobile_mcp.core.mobile_client
+    import mobile_mcp.core.basic_tools_lite
+    # 如果成功，说明包已安装，不需要添加路径
+except ImportError:
+    # 包未安装或导入失败，从源码运行
+    # __file__ 在 mcp_tools/ 目录下，往上两级到项目根目录
+    project_root = Path(__file__).parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
 
 # 尝试导入 MCP，处理可能的路径冲突
 try:
@@ -115,8 +127,19 @@ class MobileMCPServer:
         platform = self._detect_platform()
         
         try:
-            from mobile_mcp.core.mobile_client import MobileClient
-            from mobile_mcp.core.basic_tools_lite import BasicMobileToolsLite
+            # 尝试导入，如果失败会抛出 ImportError
+            try:
+                from mobile_mcp.core.mobile_client import MobileClient
+                from mobile_mcp.core.basic_tools_lite import BasicMobileToolsLite
+            except ImportError as import_err:
+                # 如果导入失败，尝试从源码路径导入
+                # 这通常发生在开发模式下，包未安装时
+                project_root = Path(__file__).parent.parent
+                if str(project_root) not in sys.path:
+                    sys.path.insert(0, str(project_root))
+                # 再次尝试导入
+                from mobile_mcp.core.mobile_client import MobileClient
+                from mobile_mcp.core.basic_tools_lite import BasicMobileToolsLite
             
             self.client = MobileClient(platform=platform)
             self.tools = BasicMobileToolsLite(self.client)
@@ -480,7 +503,11 @@ class MobileMCPServer:
         # ==================== 导航操作 ====================
         tools.append(Tool(
             name="mobile_swipe",
-            description="👆 滑动屏幕。方向：up/down/left/right",
+            description="👆 滑动屏幕。方向：up/down/left/right\n\n"
+                       "💡 左右滑动时，可指定高度坐标或百分比：\n"
+                       "- y: 指定高度坐标（像素）\n"
+                       "- y_percent: 指定高度百分比 (0-100)\n"
+                       "- 两者都未指定时，使用屏幕中心高度",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -488,6 +515,14 @@ class MobileMCPServer:
                         "type": "string",
                         "enum": ["up", "down", "left", "right"],
                         "description": "滑动方向"
+                    },
+                    "y": {
+                        "type": "integer",
+                        "description": "左右滑动时指定的高度坐标（像素，0-屏幕高度）"
+                    },
+                    "y_percent": {
+                        "type": "number",
+                        "description": "左右滑动时指定的高度百分比 (0-100)"
                     }
                 },
                 "required": ["direction"]
@@ -880,7 +915,11 @@ class MobileMCPServer:
             
             # 导航
             elif name == "mobile_swipe":
-                result = await self.tools.swipe(arguments["direction"])
+                result = await self.tools.swipe(
+                    arguments["direction"],
+                    y=arguments.get("y"),
+                    y_percent=arguments.get("y_percent")
+                )
                 return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_press_key":

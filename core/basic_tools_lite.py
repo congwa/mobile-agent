@@ -1587,8 +1587,14 @@ class BasicMobileToolsLite:
     
     # ==================== 导航操作 ====================
     
-    async def swipe(self, direction: str) -> Dict:
-        """滑动屏幕"""
+    async def swipe(self, direction: str, y: Optional[int] = None, y_percent: Optional[float] = None) -> Dict:
+        """滑动屏幕
+        
+        Args:
+            direction: 滑动方向 (up/down/left/right)
+            y: 左右滑动时指定的高度坐标（像素）
+            y_percent: 左右滑动时指定的高度百分比 (0-100)
+        """
         try:
             if self._is_ios():
                 ios_client = self._get_ios_client()
@@ -1602,11 +1608,26 @@ class BasicMobileToolsLite:
             
             center_x, center_y = width // 2, height // 2
             
+            # 对于左右滑动，如果指定了 y 或 y_percent，使用指定的高度
+            if direction in ['left', 'right']:
+                if y_percent is not None:
+                    if not (0 <= y_percent <= 100):
+                        return {"success": False, "message": f"❌ y_percent 必须在 0-100 之间: {y_percent}"}
+                    swipe_y = int(height * y_percent / 100)
+                elif y is not None:
+                    if not (0 <= y <= height):
+                        return {"success": False, "message": f"❌ y 坐标超出屏幕范围 (0-{height}): {y}"}
+                    swipe_y = y
+                else:
+                    swipe_y = center_y
+            else:
+                swipe_y = center_y
+            
             swipe_map = {
                 'up': (center_x, int(height * 0.8), center_x, int(height * 0.2)),
                 'down': (center_x, int(height * 0.2), center_x, int(height * 0.8)),
-                'left': (int(width * 0.8), center_y, int(width * 0.2), center_y),
-                'right': (int(width * 0.2), center_y, int(width * 0.8), center_y),
+                'left': (int(width * 0.8), swipe_y, int(width * 0.2), swipe_y),
+                'right': (int(width * 0.2), swipe_y, int(width * 0.8), swipe_y),
             }
             
             if direction not in swipe_map:
@@ -1619,9 +1640,23 @@ class BasicMobileToolsLite:
             else:
                 self.client.u2.swipe(x1, y1, x2, y2, duration=0.5)
             
-            self._record_operation('swipe', direction=direction)
+            # 记录操作信息
+            record_info = {'direction': direction}
+            if y is not None:
+                record_info['y'] = y
+            if y_percent is not None:
+                record_info['y_percent'] = y_percent
+            self._record_operation('swipe', **record_info)
             
-            return {"success": True, "message": f"✅ 滑动成功: {direction}"}
+            # 构建返回消息
+            msg = f"✅ 滑动成功: {direction}"
+            if direction in ['left', 'right']:
+                if y_percent is not None:
+                    msg += f" (高度: {y_percent}% = {swipe_y}px)"
+                elif y is not None:
+                    msg += f" (高度: {y}px)"
+            
+            return {"success": True, "message": msg}
         except Exception as e:
             return {"success": False, "message": f"❌ 滑动失败: {e}"}
     

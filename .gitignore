@@ -21,6 +21,11 @@ build/
 # PyPI配置（包含敏感信息，不要提交）
 .pypirc
 
+# 环境变量配置（包含敏感信息，不要提交）
+.env
+.env.local
+.env.*.local
+
 # Virtual Environment
 venv/
 env/

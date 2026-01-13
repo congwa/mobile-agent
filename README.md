@@ -337,10 +337,18 @@ tidevice list
 |:---:|------|------|
 | 📋 | `mobile_list_elements` | 列出页面元素 |
 | 📸 | `mobile_take_screenshot` | 截图 |
+| 📸 | `mobile_screenshot_with_som` | Set-of-Mark 截图（智能标注） |
+| 📸 | `mobile_screenshot_with_grid` | 带网格坐标的截图 |
 | 📐 | `mobile_get_screen_size` | 屏幕尺寸 |
 | 👆 | `mobile_click_by_text` | 文本点击 |
 | 👆 | `mobile_click_by_id` | ID 点击 |
 | 👆 | `mobile_click_at_coords` | 坐标点击 |
+| 👆 | `mobile_click_by_percent` | 百分比点击 |
+| 👆 | `mobile_click_by_som` | SoM 编号点击 |
+| 👆 | `mobile_long_press_by_id` | ID 长按 |
+| 👆 | `mobile_long_press_by_text` | 文本长按 |
+| 👆 | `mobile_long_press_by_percent` | 百分比长按 |
+| 👆 | `mobile_long_press_at_coords` | 坐标长按 |
 | ⌨️ | `mobile_input_text_by_id` | ID 输入 |
 | ⌨️ | `mobile_input_at_coords` | 坐标输入 |
 | 👆 | `mobile_swipe` | 滑动 |
@@ -351,6 +359,11 @@ tidevice list
 | 📦 | `mobile_list_apps` | 列出应用 |
 | 📱 | `mobile_list_devices` | 列出设备 |
 | 🔌 | `mobile_check_connection` | 检查连接 |
+| 🔍 | `mobile_find_close_button` | 查找关闭按钮 |
+| 🚫 | `mobile_close_popup` | 关闭弹窗 |
+| 🚫 | `mobile_close_ad` | 智能关闭广告弹窗 |
+| 🎯 | `mobile_template_close` | 模板匹配关闭弹窗 |
+| ➕ | `mobile_template_add` | 添加 X 号模板 |
 | ✅ | `mobile_assert_text` | 断言文本 |
 | 📜 | `mobile_get_operation_history` | 操作历史 |
 | 🗑️ | `mobile_clear_operation_history` | 清空历史 |
