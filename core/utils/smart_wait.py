@@ -61,7 +61,7 @@ class SmartWait:
         while time.time() - start_time < timeout:
             try:
                 # 获取当前页面快照（只获取元素数量，不解析详细内容）
-                xml = self.client.u2.dump_hierarchy()
+                xml = self.client.u2.dump_hierarchy(compressed=False)
                 current_snapshot = len(xml)  # 使用XML长度作为简单的页面状态标识
                 
                 if last_snapshot is not None:
@@ -137,14 +137,14 @@ class SmartWait:
         
         try:
             # 获取初始页面状态
-            initial_xml = self.client.u2.dump_hierarchy()
+            initial_xml = self.client.u2.dump_hierarchy(compressed=False)
             initial_length = len(initial_xml)
             
             while time.time() - start_time < timeout:
                 await asyncio.sleep(self.poll_interval)
                 
                 try:
-                    current_xml = self.client.u2.dump_hierarchy()
+                    current_xml = self.client.u2.dump_hierarchy(compressed=False)
                     current_length = len(current_xml)
                     
                     # 页面变化超过5%认为有变化

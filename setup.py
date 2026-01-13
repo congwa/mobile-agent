@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.5.6",  # assert_text 支持包含匹配
+    version="2.5.8",  # dump_hierarchy 使用 compressed=False 获取完整 XML 树
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",

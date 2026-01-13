@@ -190,7 +190,7 @@ class MobileClient:
         
         # Android平台
         # 获取XML
-        xml_string = self.u2.dump_hierarchy()
+        xml_string = self.u2.dump_hierarchy(compressed=False)
         
         # 确保xml_string是字符串类型
         if not isinstance(xml_string, str):
@@ -321,7 +321,7 @@ class MobileClient:
                         # 🎯 改进：尝试模糊匹配（忽略空格、括号）
                         ref_normalized = ref.replace(' ', '').replace('(', '').replace(')', '').replace('（', '').replace('）', '')
                         # 获取所有元素，手动匹配
-                        xml_string = self.u2.dump_hierarchy()
+                        xml_string = self.u2.dump_hierarchy(compressed=False)
                         elements = self.xml_parser.parse(xml_string)
                         for elem in elements:
                             elem_desc = elem.get('content_desc', '')
@@ -434,7 +434,7 @@ class MobileClient:
             if verify:
                 # 获取点击前页面状态
                 try:
-                    initial_xml = self.u2.dump_hierarchy()
+                    initial_xml = self.u2.dump_hierarchy(compressed=False)
                     initial_length = len(initial_xml)
                     
                     # 等待页面变化
@@ -757,7 +757,7 @@ class MobileClient:
             initial_length = 0
             if verify:
                 try:
-                    initial_xml = self.u2.dump_hierarchy()
+                    initial_xml = self.u2.dump_hierarchy(compressed=False)
                     initial_length = len(initial_xml)
                 except Exception as e:
                     print(f"  ⚠️  获取初始页面状态失败: {e}", file=sys.stderr)
@@ -1008,7 +1008,7 @@ class MobileClient:
                 try:
                     if verify:
                         # 获取操作前页面状态
-                        initial_xml = self.u2.dump_hierarchy()
+                        initial_xml = self.u2.dump_hierarchy(compressed=False)
                         initial_length = len(initial_xml)
                     
                     self.u2.press(key.lower())
@@ -1037,7 +1037,7 @@ class MobileClient:
             # 标准按键处理
             if verify:
                 # 获取操作前页面状态
-                initial_xml = self.u2.dump_hierarchy()
+                initial_xml = self.u2.dump_hierarchy(compressed=False)
                 initial_length = len(initial_xml)
             
             # 使用keycode按键 - uiautomator2使用shell命令
@@ -1099,7 +1099,7 @@ class MobileClient:
         print(f"  🔍 智能搜索键：先尝试SEARCH键...", file=sys.stderr)
         
         # 获取初始页面状态
-        initial_xml = self.u2.dump_hierarchy()
+        initial_xml = self.u2.dump_hierarchy(compressed=False)
         initial_length = len(initial_xml)
         
         # 方案1: 尝试 SEARCH 键 (keycode=84)
@@ -1126,7 +1126,7 @@ class MobileClient:
                 
                 # 方案2: 尝试 ENTER 键 (keycode=66)
                 # 重新获取当前页面状态（因为可能有轻微变化）
-                current_xml = self.u2.dump_hierarchy()
+                current_xml = self.u2.dump_hierarchy(compressed=False)
                 current_length = len(current_xml)
                 
                 self.u2.shell('input keyevent 66')
@@ -1184,7 +1184,7 @@ class MobileClient:
             await asyncio.sleep(0.1)  # 每100ms检查一次
             
             try:
-                current_xml = self.u2.dump_hierarchy()
+                current_xml = self.u2.dump_hierarchy(compressed=False)
                 current_length = len(current_xml)
                 
                 # 计算变化百分比

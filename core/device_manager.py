@@ -208,7 +208,7 @@ class DeviceManager:
         
         try:
             # 尝试获取页面结构，如果失败可能是无障碍服务未启用
-            xml = self.u2.dump_hierarchy()
+            xml = self.u2.dump_hierarchy(compressed=False)
             if xml and len(xml) > 100:  # 有内容说明无障碍服务正常
                 print(f"   ✅ 无障碍服务: 已启用", file=sys.stderr)
                 return
@@ -235,7 +235,7 @@ class DeviceManager:
         
         try:
             # 尝试获取页面结构
-            xml = self.u2.dump_hierarchy()
+            xml = self.u2.dump_hierarchy(compressed=False)
             if xml and len(xml) > 100:
                 return {
                     'enabled': True,

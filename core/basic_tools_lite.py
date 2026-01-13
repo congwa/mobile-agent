@@ -354,7 +354,7 @@ class BasicMobileToolsLite:
             if show_popup_hints and not self._is_ios():
                 try:
                     import xml.etree.ElementTree as ET
-                    xml_string = self.client.u2.dump_hierarchy()
+                    xml_string = self.client.u2.dump_hierarchy(compressed=False)
                     root = ET.fromstring(xml_string)
                     
                     # 检测弹窗区域
@@ -531,7 +531,7 @@ class BasicMobileToolsLite:
             else:
                 try:
                     import xml.etree.ElementTree as ET
-                    xml_string = self.client.u2.dump_hierarchy()
+                    xml_string = self.client.u2.dump_hierarchy(compressed=False)
                     root = ET.fromstring(xml_string)
                     
                     for elem in root.iter():
@@ -1089,7 +1089,7 @@ class BasicMobileToolsLite:
     def _find_element_in_tree(self, text: str) -> Optional[Dict]:
         """在 XML 树中查找包含指定文本的元素"""
         try:
-            xml = self.client.u2.dump_hierarchy()
+            xml = self.client.u2.dump_hierarchy(compressed=False)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(xml)
             
@@ -1831,7 +1831,7 @@ class BasicMobileToolsLite:
                     return ios_client.list_elements()
                 return [{"error": "iOS 暂不支持元素列表，建议使用截图"}]
             else:
-                xml_string = self.client.u2.dump_hierarchy()
+                xml_string = self.client.u2.dump_hierarchy(compressed=False)
                 elements = self.client.xml_parser.parse(xml_string)
                 
                 result = []
@@ -1868,7 +1868,7 @@ class BasicMobileToolsLite:
             screen_height = self.client.u2.info.get('displayHeight', 1280)
             
             # 获取元素列表
-            xml_string = self.client.u2.dump_hierarchy()
+            xml_string = self.client.u2.dump_hierarchy(compressed=False)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(xml_string)
             
@@ -2022,7 +2022,7 @@ class BasicMobileToolsLite:
             screen_height = self.client.u2.info.get('displayHeight', 1280)
             
             # 获取原始 XML
-            xml_string = self.client.u2.dump_hierarchy()
+            xml_string = self.client.u2.dump_hierarchy(compressed=False)
             
             # 关闭按钮的文本特征
             close_texts = ['×', 'X', 'x', '关闭', '取消', 'close', 'Close', 'CLOSE', '跳过', '知道了']
@@ -2894,7 +2894,7 @@ class BasicMobileToolsLite:
             import xml.etree.ElementTree as ET
             
             # ========== 第1步：控件树查找关闭按钮 ==========
-            xml_string = self.client.u2.dump_hierarchy()
+            xml_string = self.client.u2.dump_hierarchy(compressed=False)
             root = ET.fromstring(xml_string)
             
             # 关闭按钮的常见特征
