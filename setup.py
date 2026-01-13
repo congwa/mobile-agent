@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.5.9",  # 使用 ADB dump 获取完整 UI 层级（包含 NAF 元素）
+    version="2.5.10",  # list_elements 增加文本过滤，保留有文本的元素
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
