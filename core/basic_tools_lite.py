@@ -31,6 +31,9 @@ class BasicMobileToolsLite:
         
         # 操作历史（用于生成 pytest 脚本）
         self.operation_history: List[Dict] = []
+        
+        # 目标应用包名（用于监测应用跳转）
+        self.target_package: Optional[str] = None
     
     def _is_ios(self) -> bool:
         """判断当前是否为 iOS 平台"""
@@ -53,34 +56,157 @@ class BasicMobileToolsLite:
         }
         self.operation_history.append(record)
     
-    def _get_full_hierarchy(self) -> str:
-        """获取完整的 UI 层级 XML（包含 NAF 元素）
-        
-        优先使用 ADB 直接 dump，比 uiautomator2.dump_hierarchy 更完整
-        """
-        import sys
-        
-        if self._is_ios():
-            # iOS 使用 page_source
-            ios_client = self._get_ios_client()
-            if ios_client and hasattr(ios_client, 'wda'):
-                return ios_client.wda.source()
-            return ""
-        
-        # Android: 优先使用 ADB 直接 dump
+    def _get_current_package(self) -> Optional[str]:
+        """获取当前前台应用的包名/Bundle ID"""
         try:
-            # 方法1: ADB dump（获取最完整的 UI 树，包括 NAF 元素）
-            self.client.u2.shell('uiautomator dump /sdcard/ui_dump.xml')
-            result = self.client.u2.shell('cat /sdcard/ui_dump.xml')
-            if result and isinstance(result, str) and result.strip().startswith('<?xml'):
-                xml_string = result.strip()
-                self.client.u2.shell('rm /sdcard/ui_dump.xml')
-                return xml_string
-        except Exception as e:
-            print(f"  ⚠️  ADB dump 失败: {e}", file=sys.stderr)
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    app_info = ios_client.wda.session().app_current()
+                    return app_info.get('bundleId')
+            else:
+                info = self.client.u2.app_current()
+                return info.get('package')
+        except Exception:
+            return None
+    
+    def _check_app_switched(self) -> Dict:
+        """检查是否已跳出目标应用
         
-        # 方法2: 回退到 uiautomator2
-        return self.client.u2.dump_hierarchy(compressed=False)
+        Returns:
+            {
+                'switched': bool,  # 是否跳转
+                'current_package': str,  # 当前应用包名
+                'target_package': str,  # 目标应用包名
+                'message': str  # 提示信息
+            }
+        """
+        if not self.target_package:
+            return {
+                'switched': False,
+                'current_package': None,
+                'target_package': None,
+                'message': '⚠️ 未设置目标应用，无法监测应用跳转'
+            }
+        
+        current = self._get_current_package()
+        if not current:
+            return {
+                'switched': False,
+                'current_package': None,
+                'target_package': self.target_package,
+                'message': '⚠️ 无法获取当前应用包名'
+            }
+        
+        if current != self.target_package:
+            return {
+                'switched': True,
+                'current_package': current,
+                'target_package': self.target_package,
+                'message': f'⚠️ 应用已跳转！当前应用: {current}，目标应用: {self.target_package}'
+            }
+        
+        return {
+            'switched': False,
+            'current_package': current,
+            'target_package': self.target_package,
+            'message': f'✅ 仍在目标应用: {current}'
+        }
+    
+    def _return_to_target_app(self) -> Dict:
+        """返回到目标应用
+        
+        策略：
+        1. 先按返回键（可能关闭弹窗或返回上一页）
+        2. 如果还在其他应用，启动目标应用
+        3. 验证是否成功返回
+        
+        Returns:
+            {
+                'success': bool,
+                'message': str,
+                'method': str  # 使用的返回方法
+            }
+        """
+        if not self.target_package:
+            return {
+                'success': False,
+                'message': '❌ 未设置目标应用，无法返回',
+                'method': None
+            }
+        
+        try:
+            # 先检查当前应用
+            current = self._get_current_package()
+            if not current:
+                return {
+                    'success': False,
+                    'message': '❌ 无法获取当前应用包名',
+                    'method': None
+                }
+            
+            # 如果已经在目标应用，不需要返回
+            if current == self.target_package:
+                return {
+                    'success': True,
+                    'message': f'✅ 已在目标应用: {self.target_package}',
+                    'method': 'already_in_target'
+                }
+            
+            # 策略1: 先按返回键（可能关闭弹窗或返回）
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    # iOS 返回键
+                    ios_client.wda.press('home')  # iOS 先按 home
+                    time.sleep(0.5)
+                    # 然后启动目标应用
+                    ios_client.wda.app_activate(self.target_package)
+                else:
+                    return {
+                        'success': False,
+                        'message': '❌ iOS 客户端未初始化',
+                        'method': None
+                    }
+            else:
+                # Android: 先按返回键
+                self.client.u2.press('back')
+                time.sleep(0.5)
+                
+                # 检查是否已返回
+                current = self._get_current_package()
+                if current == self.target_package:
+                    return {
+                        'success': True,
+                        'message': f'✅ 已返回目标应用: {self.target_package}（通过返回键）',
+                        'method': 'back_key'
+                    }
+                
+                # 如果还在其他应用，启动目标应用
+                self.client.u2.app_start(self.target_package)
+                time.sleep(1)
+            
+            # 验证是否成功返回
+            current = self._get_current_package()
+            if current == self.target_package:
+                return {
+                    'success': True,
+                    'message': f'✅ 已返回目标应用: {self.target_package}',
+                    'method': 'app_start'
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': f'❌ 返回失败：当前应用仍为 {current}，期望 {self.target_package}',
+                    'method': 'app_start'
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'❌ 返回目标应用失败: {e}',
+                'method': None
+            }
+    
     
     # ==================== 截图 ====================
     
@@ -381,7 +507,7 @@ class BasicMobileToolsLite:
             if show_popup_hints and not self._is_ios():
                 try:
                     import xml.etree.ElementTree as ET
-                    xml_string = self._get_full_hierarchy()
+                    xml_string = self.client.u2.dump_hierarchy(compressed=False)
                     root = ET.fromstring(xml_string)
                     
                     # 检测弹窗区域
@@ -558,7 +684,7 @@ class BasicMobileToolsLite:
             else:
                 try:
                     import xml.etree.ElementTree as ET
-                    xml_string = self._get_full_hierarchy()
+                    xml_string = self.client.u2.dump_hierarchy(compressed=False)
                     root = ET.fromstring(xml_string)
                     
                     for elem in root.iter():
@@ -963,25 +1089,41 @@ class BasicMobileToolsLite:
                 ref=f"coords_{x}_{y}"
             )
             
+            # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+            app_check = self._check_app_switched()
+            return_result = None
+            
+            if app_check['switched']:
+                # 应用已跳转，尝试返回目标应用
+                return_result = self._return_to_target_app()
+            
+            # 构建返回消息
             if converted:
                 if conversion_type == "crop_offset":
-                    return {
-                        "success": True,
-                        "message": f"✅ 点击成功: ({x}, {y})\n"
-                                  f"   🔍 局部截图坐标转换: ({original_x},{original_y}) + 偏移({crop_offset_x},{crop_offset_y}) → ({x},{y})"
-                    }
+                    msg = f"✅ 点击成功: ({x}, {y})\n" \
+                          f"   🔍 局部截图坐标转换: ({original_x},{original_y}) + 偏移({crop_offset_x},{crop_offset_y}) → ({x},{y})"
                 else:
-                    return {
-                        "success": True,
-                        "message": f"✅ 点击成功: ({x}, {y})\n"
-                                  f"   📐 坐标已转换: ({original_x},{original_y}) → ({x},{y})\n"
-                                  f"   🖼️ 图片尺寸: {image_width}x{image_height} → 屏幕: {screen_width}x{screen_height}"
-                    }
+                    msg = f"✅ 点击成功: ({x}, {y})\n" \
+                          f"   📐 坐标已转换: ({original_x},{original_y}) → ({x},{y})\n" \
+                          f"   🖼️ 图片尺寸: {image_width}x{image_height} → 屏幕: {screen_width}x{screen_height}"
             else:
-                return {
-                    "success": True,
-                    "message": f"✅ 点击成功: ({x}, {y}) [相对位置: {x_percent}%, {y_percent}%]"
-                }
+                msg = f"✅ 点击成功: ({x}, {y}) [相对位置: {x_percent}%, {y_percent}%]"
+            
+            # 如果检测到应用跳转，添加警告和返回结果
+            if app_check['switched']:
+                msg += f"\n{app_check['message']}"
+                if return_result:
+                    if return_result['success']:
+                        msg += f"\n{return_result['message']}"
+                    else:
+                        msg += f"\n❌ 自动返回失败: {return_result['message']}"
+            
+            return {
+                "success": True,
+                "message": msg,
+                "app_check": app_check,
+                "return_to_app": return_result
+            }
         except Exception as e:
             return {"success": False, "message": f"❌ 点击失败: {e}"}
     
@@ -1114,9 +1256,9 @@ class BasicMobileToolsLite:
             return {"success": False, "message": f"❌ 点击失败: {e}"}
     
     def _find_element_in_tree(self, text: str) -> Optional[Dict]:
-        """在 XML 树中查找包含指定文本的元素（使用完整 UI 层级）"""
+        """在 XML 树中查找包含指定文本的元素"""
         try:
-            xml = self._get_full_hierarchy()
+            xml = self.client.u2.dump_hierarchy(compressed=False)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(xml)
             
@@ -1510,7 +1652,28 @@ class BasicMobileToolsLite:
                         elem.set_text(text)
                         time.sleep(0.3)
                         self._record_operation('input', element=resource_id, ref=resource_id, text=text)
-                        return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                        
+                        # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+                        app_check = self._check_app_switched()
+                        return_result = None
+                        if app_check['switched']:
+                            return_result = self._return_to_target_app()
+                        
+                        msg = f"✅ 输入成功: '{text}'"
+                        if app_check['switched']:
+                            msg += f"\n{app_check['message']}"
+                            if return_result:
+                                if return_result['success']:
+                                    msg += f"\n{return_result['message']}"
+                                else:
+                                    msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                        
+                        return {
+                            "success": True,
+                            "message": msg,
+                            "app_check": app_check,
+                            "return_to_app": return_result
+                        }
                     return {"success": False, "message": f"❌ 输入框不存在: {resource_id}"}
             else:
                 elements = self.client.u2(resourceId=resource_id)
@@ -1524,7 +1687,28 @@ class BasicMobileToolsLite:
                         elements.set_text(text)
                         time.sleep(0.3)
                         self._record_operation('input', element=resource_id, ref=resource_id, text=text)
-                        return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                        
+                        # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+                        app_check = self._check_app_switched()
+                        return_result = None
+                        if app_check['switched']:
+                            return_result = self._return_to_target_app()
+                        
+                        msg = f"✅ 输入成功: '{text}'"
+                        if app_check['switched']:
+                            msg += f"\n{app_check['message']}"
+                            if return_result:
+                                if return_result['success']:
+                                    msg += f"\n{return_result['message']}"
+                                else:
+                                    msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                        
+                        return {
+                            "success": True,
+                            "message": msg,
+                            "app_check": app_check,
+                            "return_to_app": return_result
+                        }
                     
                     # 多个相同 ID（<=5个），尝试智能选择
                     if count <= 5:
@@ -1537,14 +1721,56 @@ class BasicMobileToolsLite:
                                     elem.set_text(text)
                                     time.sleep(0.3)
                                     self._record_operation('input', element=resource_id, ref=resource_id, text=text)
-                                    return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                                    
+                                    # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+                                    app_check = self._check_app_switched()
+                                    return_result = None
+                                    if app_check['switched']:
+                                        return_result = self._return_to_target_app()
+                                    
+                                    msg = f"✅ 输入成功: '{text}'"
+                                    if app_check['switched']:
+                                        msg += f"\n{app_check['message']}"
+                                        if return_result:
+                                            if return_result['success']:
+                                                msg += f"\n{return_result['message']}"
+                                            else:
+                                                msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                                    
+                                    return {
+                                        "success": True,
+                                        "message": msg,
+                                        "app_check": app_check,
+                                        "return_to_app": return_result
+                                    }
                             except:
                                 continue
                         # 没找到可编辑的，用第一个
                         elements[0].set_text(text)
                         time.sleep(0.3)
                         self._record_operation('input', element=resource_id, ref=resource_id, text=text)
-                        return {"success": True, "message": f"✅ 输入成功: '{text}'"}
+                        
+                        # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+                        app_check = self._check_app_switched()
+                        return_result = None
+                        if app_check['switched']:
+                            return_result = self._return_to_target_app()
+                        
+                        msg = f"✅ 输入成功: '{text}'"
+                        if app_check['switched']:
+                            msg += f"\n{app_check['message']}"
+                            if return_result:
+                                if return_result['success']:
+                                    msg += f"\n{return_result['message']}"
+                                else:
+                                    msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                        
+                        return {
+                            "success": True,
+                            "message": msg,
+                            "app_check": app_check,
+                            "return_to_app": return_result
+                        }
                 
                 # ID 不可靠（不存在或太多），改用 EditText 类型定位
                 edit_texts = self.client.u2(className='android.widget.EditText')
@@ -1554,7 +1780,28 @@ class BasicMobileToolsLite:
                         edit_texts.set_text(text)
                         time.sleep(0.3)
                         self._record_operation('input', element='EditText', ref='EditText', text=text)
-                        return {"success": True, "message": f"✅ 输入成功: '{text}' (通过 EditText 定位)"}
+                        
+                        # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+                        app_check = self._check_app_switched()
+                        return_result = None
+                        if app_check['switched']:
+                            return_result = self._return_to_target_app()
+                        
+                        msg = f"✅ 输入成功: '{text}' (通过 EditText 定位)"
+                        if app_check['switched']:
+                            msg += f"\n{app_check['message']}"
+                            if return_result:
+                                if return_result['success']:
+                                    msg += f"\n{return_result['message']}"
+                                else:
+                                    msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                        
+                        return {
+                            "success": True,
+                            "message": msg,
+                            "app_check": app_check,
+                            "return_to_app": return_result
+                        }
                     
                     # 多个 EditText，选择最靠上的
                     best_elem = None
@@ -1573,7 +1820,28 @@ class BasicMobileToolsLite:
                         best_elem.set_text(text)
                         time.sleep(0.3)
                         self._record_operation('input', element='EditText', ref='EditText', text=text)
-                        return {"success": True, "message": f"✅ 输入成功: '{text}' (通过 EditText 定位，选择最顶部的)"}
+                        
+                        # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+                        app_check = self._check_app_switched()
+                        return_result = None
+                        if app_check['switched']:
+                            return_result = self._return_to_target_app()
+                        
+                        msg = f"✅ 输入成功: '{text}' (通过 EditText 定位，选择最顶部的)"
+                        if app_check['switched']:
+                            msg += f"\n{app_check['message']}"
+                            if return_result:
+                                if return_result['success']:
+                                    msg += f"\n{return_result['message']}"
+                                else:
+                                    msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                        
+                        return {
+                            "success": True,
+                            "message": msg,
+                            "app_check": app_check,
+                            "return_to_app": return_result
+                        }
                 
                 return {"success": False, "message": f"❌ 输入框不存在: {resource_id}"}
                     
@@ -1625,7 +1893,29 @@ class BasicMobileToolsLite:
                 text=text
             )
             
-            return {"success": True, "message": f"✅ 输入成功: ({x}, {y}) [相对位置: {x_percent}%, {y_percent}%] -> '{text}'"}
+            # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+            app_check = self._check_app_switched()
+            return_result = None
+            
+            if app_check['switched']:
+                # 应用已跳转，尝试返回目标应用
+                return_result = self._return_to_target_app()
+            
+            msg = f"✅ 输入成功: ({x}, {y}) [相对位置: {x_percent}%, {y_percent}%] -> '{text}'"
+            if app_check['switched']:
+                msg += f"\n{app_check['message']}"
+                if return_result:
+                    if return_result['success']:
+                        msg += f"\n{return_result['message']}"
+                    else:
+                        msg += f"\n❌ 自动返回失败: {return_result['message']}"
+            
+            return {
+                "success": True,
+                "message": msg,
+                "app_check": app_check,
+                "return_to_app": return_result
+            }
         except Exception as e:
             return {"success": False, "message": f"❌ 输入失败: {e}"}
     
@@ -1692,6 +1982,14 @@ class BasicMobileToolsLite:
                 record_info['y_percent'] = y_percent
             self._record_operation('swipe', **record_info)
             
+            # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
+            app_check = self._check_app_switched()
+            return_result = None
+            
+            if app_check['switched']:
+                # 应用已跳转，尝试返回目标应用
+                return_result = self._return_to_target_app()
+            
             # 构建返回消息
             msg = f"✅ 滑动成功: {direction}"
             if direction in ['left', 'right']:
@@ -1700,7 +1998,21 @@ class BasicMobileToolsLite:
                 elif y is not None:
                     msg += f" (高度: {y}px)"
             
-            return {"success": True, "message": msg}
+            # 如果检测到应用跳转，添加警告和返回结果
+            if app_check['switched']:
+                msg += f"\n{app_check['message']}"
+                if return_result:
+                    if return_result['success']:
+                        msg += f"\n{return_result['message']}"
+                    else:
+                        msg += f"\n❌ 自动返回失败: {return_result['message']}"
+            
+            return {
+                "success": True,
+                "message": msg,
+                "app_check": app_check,
+                "return_to_app": return_result
+            }
         except Exception as e:
             return {"success": False, "message": f"❌ 滑动失败: {e}"}
     
@@ -1756,11 +2068,22 @@ class BasicMobileToolsLite:
             
             await asyncio.sleep(2)
             
+            # 记录目标应用包名（用于后续监测应用跳转）
+            self.target_package = package_name
+            
+            # 验证是否成功启动到目标应用
+            current = self._get_current_package()
+            if current and current != package_name:
+                return {
+                    "success": False,
+                    "message": f"❌ 启动失败：当前应用为 {current}，期望 {package_name}"
+                }
+            
             self._record_operation('launch_app', package_name=package_name)
             
             return {
                 "success": True,
-                "message": f"✅ 已启动: {package_name}\n💡 建议等待 2-3 秒让页面加载"
+                "message": f"✅ 已启动: {package_name}\n💡 建议等待 2-3 秒让页面加载\n📱 已设置应用状态监测"
             }
         except Exception as e:
             return {"success": False, "message": f"❌ 启动失败: {e}"}
@@ -1850,7 +2173,7 @@ class BasicMobileToolsLite:
     # ==================== 辅助工具 ====================
     
     def list_elements(self) -> List[Dict]:
-        """列出页面元素"""
+        """列出页面元素（已优化：过滤排版容器，保留功能控件）"""
         try:
             if self._is_ios():
                 ios_client = self._get_ios_client()
@@ -1858,22 +2181,142 @@ class BasicMobileToolsLite:
                     return ios_client.list_elements()
                 return [{"error": "iOS 暂不支持元素列表，建议使用截图"}]
             else:
-                xml_string = self._get_full_hierarchy()
+                xml_string = self.client.u2.dump_hierarchy(compressed=False)
                 elements = self.client.xml_parser.parse(xml_string)
+                
+                # 功能控件类型（需要保留）
+                FUNCTIONAL_WIDGETS = {
+                    'TextView', 'Text', 'Label',  # 文本类
+                    'ImageView', 'Image', 'ImageButton',  # 图片类
+                    'Button', 'CheckBox', 'RadioButton', 'Switch',  # 交互类
+                    'SeekBar', 'ProgressBar', 'RatingBar',  # 滑动/进度类
+                    'EditText', 'TextInput',  # 输入类
+                    'VideoView', 'WebView',  # 特殊功能类
+                    'RecyclerView', 'ListView', 'GridView',  # 列表类
+                    'ScrollView', 'NestedScrollView',  # 滚动容器（有实际功能）
+                }
+                
+                # 容器控件类型（需要过滤，除非有业务ID）
+                CONTAINER_WIDGETS = {
+                    'FrameLayout', 'LinearLayout', 'RelativeLayout',
+                    'ViewGroup', 'ConstraintLayout', 'CoordinatorLayout',
+                    'CardView', 'View',  # 基础View也可能只是容器
+                }
+                
+                # 装饰类控件关键词（resource_id中包含这些关键词的通常可以过滤）
+                # 支持匹配如 qylt_item_short_video_shadow_one 这样的命名
+                DECORATIVE_KEYWORDS = {
+                    'shadow', 'divider', 'separator', 'line', 'border',
+                    'background', 'bg_', '_bg', 'decorative', 'decoration',
+                    '_shadow', 'shadow_', '_divider', 'divider_', '_line', 'line_'
+                }
                 
                 result = []
                 for elem in elements:
-                    if elem.get('clickable') or elem.get('focusable'):
+                    # 获取元素属性
+                    class_name = elem.get('class_name', '')
+                    resource_id = elem.get('resource_id', '').strip()
+                    text = elem.get('text', '').strip()
+                    content_desc = elem.get('content_desc', '').strip()
+                    bounds = elem.get('bounds', '')
+                    clickable = elem.get('clickable', False)
+                    focusable = elem.get('focusable', False)
+                    scrollable = elem.get('scrollable', False)
+                    enabled = elem.get('enabled', True)
+                    
+                    # 1. 过滤 bounds="[0,0][0,0]" 的视觉隐藏元素
+                    if bounds == '[0,0][0,0]':
+                        continue
+                    
+                    # 2. 检查是否是功能控件（直接保留）
+                    if class_name in FUNCTIONAL_WIDGETS:
                         result.append({
-                            'resource_id': elem.get('resource_id', ''),
-                            'text': elem.get('text', ''),
-                            'content_desc': elem.get('content_desc', ''),
-                            'bounds': elem.get('bounds', ''),
-                            'clickable': elem.get('clickable', False)
+                            'resource_id': resource_id,
+                            'text': text,
+                            'content_desc': content_desc,
+                            'bounds': bounds,
+                            'clickable': clickable,
+                            'class': class_name
                         })
+                        continue
+                    
+                    # 3. 检查是否是容器控件
+                    if class_name in CONTAINER_WIDGETS:
+                        # 容器控件需要检查是否有业务相关的ID
+                        has_business_id = self._has_business_id(resource_id)
+                        if not has_business_id:
+                            # 无业务ID的容器控件，检查是否有其他有意义属性
+                            if not (clickable or focusable or scrollable or text or content_desc):
+                                # 所有属性都是默认值，过滤掉
+                                continue
+                        # 有业务ID或其他有意义属性，保留
+                        result.append({
+                            'resource_id': resource_id,
+                            'text': text,
+                            'content_desc': content_desc,
+                            'bounds': bounds,
+                            'clickable': clickable,
+                            'class': class_name
+                        })
+                        continue
+                    
+                    # 4. 检查是否是装饰类控件
+                    if resource_id:
+                        resource_id_lower = resource_id.lower()
+                        if any(keyword in resource_id_lower for keyword in DECORATIVE_KEYWORDS):
+                            # 是装饰类控件，且没有交互属性，过滤掉
+                            if not (clickable or focusable or text or content_desc):
+                                continue
+                    
+                    # 5. 检查是否所有属性均为默认值
+                    if not (text or content_desc or resource_id or clickable or focusable or scrollable):
+                        # 所有属性都是默认值，过滤掉
+                        continue
+                    
+                    # 6. 其他情况：有意义的元素保留
+                    result.append({
+                        'resource_id': resource_id,
+                        'text': text,
+                        'content_desc': content_desc,
+                        'bounds': bounds,
+                        'clickable': clickable,
+                        'class': class_name
+                    })
+                
                 return result
         except Exception as e:
             return [{"error": f"获取元素失败: {e}"}]
+    
+    def _has_business_id(self, resource_id: str) -> bool:
+        """
+        判断resource_id是否是业务相关的ID
+        
+        业务相关的ID通常包含：
+        - 有意义的命名（不是自动生成的）
+        - 不包含常见的自动生成模式
+        """
+        if not resource_id:
+            return False
+        
+        # 自动生成的ID模式（通常可以忽略）
+        auto_generated_patterns = [
+            r'^android:id/',  # 系统ID
+            r':id/\d+',  # 数字ID
+            r':id/view_\d+',  # view_数字
+            r':id/item_\d+',  # item_数字
+        ]
+        
+        for pattern in auto_generated_patterns:
+            if re.search(pattern, resource_id):
+                return False
+        
+        # 如果resource_id有实际内容且不是自动生成的，认为是业务ID
+        # 排除一些常见的系统ID
+        system_ids = ['android:id/content', 'android:id/statusBarBackground']
+        if resource_id in system_ids:
+            return False
+        
+        return True
     
     def find_close_button(self) -> Dict:
         """智能查找关闭按钮（不点击，只返回位置）
@@ -1894,8 +2337,8 @@ class BasicMobileToolsLite:
             screen_width = self.client.u2.info.get('displayWidth', 720)
             screen_height = self.client.u2.info.get('displayHeight', 1280)
             
-            # 获取元素列表（使用完整 UI 层级）
-            xml_string = self._get_full_hierarchy()
+            # 获取元素列表
+            xml_string = self.client.u2.dump_hierarchy(compressed=False)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(xml_string)
             
@@ -2075,8 +2518,8 @@ class BasicMobileToolsLite:
             screen_width = self.client.u2.info.get('displayWidth', 720)
             screen_height = self.client.u2.info.get('displayHeight', 1280)
             
-            # 获取原始 XML（使用完整 UI 层级）
-            xml_string = self._get_full_hierarchy()
+            # 获取原始 XML
+            xml_string = self.client.u2.dump_hierarchy(compressed=False)
             
             # 关闭按钮的文本特征
             close_texts = ['×', 'X', 'x', '关闭', '取消', 'close', 'Close', 'CLOSE', '跳过', '知道了']
@@ -2305,13 +2748,33 @@ class BasicMobileToolsLite:
                             self.client.u2.click(try_x, try_y)
                             time.sleep(0.3)
                     
+                    # 🎯 关键步骤：检查应用是否跳转，如果跳转说明弹窗去除失败，需要返回目标应用
+                    app_check = self._check_app_switched()
+                    return_result = None
+                    
+                    if app_check['switched']:
+                        # 应用已跳转，说明弹窗去除失败，尝试返回目标应用
+                        return_result = self._return_to_target_app()
+                    
                     # 尝试后截图，让 AI 判断是否成功
                     screenshot_result = self.take_screenshot("尝试关闭后")
+                    
+                    msg = f"✅ 已尝试点击常见关闭按钮位置"
+                    if app_check['switched']:
+                        msg += f"\n⚠️ 应用已跳转，说明弹窗去除失败"
+                        if return_result:
+                            if return_result['success']:
+                                msg += f"\n{return_result['message']}"
+                            else:
+                                msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                    
                     return {
                         "success": True,
-                        "message": f"✅ 已尝试点击常见关闭按钮位置",
+                        "message": msg,
                         "tried_positions": [p[2] for p in try_positions],
                         "screenshot": screenshot_result.get("screenshot_path", ""),
+                        "app_check": app_check,
+                        "return_to_app": return_result,
                         "tip": "请查看截图确认弹窗是否已关闭。如果还在，可手动分析截图找到关闭按钮位置。"
                     }
                 
@@ -2344,6 +2807,14 @@ class BasicMobileToolsLite:
             self.client.u2.click(best['center_x'], best['center_y'])
             time.sleep(0.5)
             
+            # 🎯 关键步骤：检查应用是否跳转，如果跳转说明弹窗去除失败，需要返回目标应用
+            app_check = self._check_app_switched()
+            return_result = None
+            
+            if app_check['switched']:
+                # 应用已跳转，说明弹窗去除失败，尝试返回目标应用
+                return_result = self._return_to_target_app()
+            
             # 点击后截图，让 AI 判断是否成功
             screenshot_result = self.take_screenshot("关闭弹窗后")
             
@@ -2359,11 +2830,21 @@ class BasicMobileToolsLite:
                 ref=f"close_popup_{best['position']}"
             )
             
+            # 构建返回消息
+            msg = f"✅ 已点击关闭按钮 ({best['position']}): ({best['center_x']}, {best['center_y']})"
+            if app_check['switched']:
+                msg += f"\n⚠️ 应用已跳转，说明弹窗去除失败"
+                if return_result:
+                    if return_result['success']:
+                        msg += f"\n{return_result['message']}"
+                    else:
+                        msg += f"\n❌ 自动返回失败: {return_result['message']}"
+            
             # 返回候选按钮列表，让 AI 看截图判断
             # 如果弹窗还在，AI 可以选择点击其他候选按钮
             return {
                 "success": True,
-                "message": f"✅ 已点击关闭按钮 ({best['position']}): ({best['center_x']}, {best['center_y']})",
+                "message": msg,
                 "clicked": {
                     "position": best['position'],
                     "match_type": best['match_type'],
@@ -2373,6 +2854,8 @@ class BasicMobileToolsLite:
                 "screenshot": screenshot_result.get("screenshot_path", ""),
                 "popup_detected": popup_bounds is not None,
                 "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
+                "app_check": app_check,
+                "return_to_app": return_result,
                 "other_candidates": [
                     {
                         "position": c['position'], 
@@ -2382,7 +2865,7 @@ class BasicMobileToolsLite:
                     }
                     for c in close_candidates[1:4]  # 返回其他3个候选，AI 可以选择
                 ],
-                "tip": "请查看截图判断弹窗是否已关闭。如果弹窗还在，可以尝试点击 other_candidates 中的其他位置；如果误点跳转了，请按返回键"
+                "tip": "请查看截图判断弹窗是否已关闭。如果弹窗还在，可以尝试点击 other_candidates 中的其他位置"
             }
             
         except Exception as e:
@@ -2947,8 +3430,8 @@ class BasicMobileToolsLite:
         try:
             import xml.etree.ElementTree as ET
             
-            # ========== 第1步：控件树查找关闭按钮（使用完整 UI 层级）==========
-            xml_string = self._get_full_hierarchy()
+            # ========== 第1步：控件树查找关闭按钮 ==========
+            xml_string = self.client.u2.dump_hierarchy(compressed=False)
             root = ET.fromstring(xml_string)
             
             # 关闭按钮的常见特征
@@ -3045,15 +3528,35 @@ class BasicMobileToolsLite:
                     pre_result = self.take_screenshot(description="关闭前", compress=False)
                     pre_screenshot = pre_result.get("screenshot_path")
                 
-                # 点击
-                self.click_at_coords(cx, cy)
+                # 点击（click_at_coords 内部已包含应用状态检查和自动返回）
+                click_result = self.click_at_coords(cx, cy)
                 time.sleep(0.5)
+                
+                # 🎯 再次检查应用状态（确保弹窗去除没有导致应用跳转）
+                app_check = self._check_app_switched()
+                return_result = None
+                
+                if app_check['switched']:
+                    # 应用已跳转，说明弹窗去除失败，尝试返回目标应用
+                    return_result = self._return_to_target_app()
                 
                 result["success"] = True
                 result["method"] = "控件树"
-                result["message"] = f"✅ 通过控件树找到关闭按钮并点击\n" \
-                                   f"   位置: ({cx}, {cy})\n" \
-                                   f"   原因: {best['reason']}"
+                msg = f"✅ 通过控件树找到关闭按钮并点击\n" \
+                      f"   位置: ({cx}, {cy})\n" \
+                      f"   原因: {best['reason']}"
+                
+                if app_check['switched']:
+                    msg += f"\n⚠️ 应用已跳转，说明弹窗去除失败"
+                    if return_result:
+                        if return_result['success']:
+                            msg += f"\n{return_result['message']}"
+                        else:
+                            msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                
+                result["message"] = msg
+                result["app_check"] = app_check
+                result["return_to_app"] = return_result
                 
                 # 自动学习：检查这个 X 是否已在模板库，不在就添加
                 if auto_learn and pre_screenshot:
@@ -3083,16 +3586,36 @@ class BasicMobileToolsLite:
                         x_pct = best["percent"]["x"]
                         y_pct = best["percent"]["y"]
                         
-                        # 点击
-                        self.click_by_percent(x_pct, y_pct)
+                        # 点击（click_by_percent 内部已包含应用状态检查和自动返回）
+                        click_result = self.click_by_percent(x_pct, y_pct)
                         time.sleep(0.5)
+                        
+                        # 🎯 再次检查应用状态（确保弹窗去除没有导致应用跳转）
+                        app_check = self._check_app_switched()
+                        return_result = None
+                        
+                        if app_check['switched']:
+                            # 应用已跳转，说明弹窗去除失败，尝试返回目标应用
+                            return_result = self._return_to_target_app()
                         
                         result["success"] = True
                         result["method"] = "模板匹配"
-                        result["message"] = f"✅ 通过模板匹配找到关闭按钮并点击\n" \
-                                           f"   模板: {best.get('template', 'unknown')}\n" \
-                                           f"   置信度: {best.get('confidence', 'N/A')}%\n" \
-                                           f"   位置: ({x_pct:.1f}%, {y_pct:.1f}%)"
+                        msg = f"✅ 通过模板匹配找到关闭按钮并点击\n" \
+                              f"   模板: {best.get('template', 'unknown')}\n" \
+                              f"   置信度: {best.get('confidence', 'N/A')}%\n" \
+                              f"   位置: ({x_pct:.1f}%, {y_pct:.1f}%)"
+                        
+                        if app_check['switched']:
+                            msg += f"\n⚠️ 应用已跳转，说明弹窗去除失败"
+                            if return_result:
+                                if return_result['success']:
+                                    msg += f"\n{return_result['message']}"
+                                else:
+                                    msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                        
+                        result["message"] = msg
+                        result["app_check"] = app_check
+                        result["return_to_app"] = return_result
                         return result
                     
             except ImportError:
