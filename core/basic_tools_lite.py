@@ -1155,8 +1155,16 @@ class BasicMobileToolsLite:
         except Exception as e:
             return {"success": False, "message": f"❌ 百分比点击失败: {e}"}
     
-    def click_by_text(self, text: str, timeout: float = 3.0) -> Dict:
-        """通过文本点击 - 先查 XML 树，再精准匹配"""
+    def click_by_text(self, text: str, timeout: float = 3.0, position: Optional[str] = None) -> Dict:
+        """通过文本点击 - 先查 XML 树，再精准匹配
+        
+        Args:
+            text: 元素的文本内容
+            timeout: 超时时间
+            position: 位置信息，当有多个相同文案时使用。支持：
+                - 垂直方向: "top"/"upper"/"上", "bottom"/"lower"/"下", "middle"/"center"/"中"
+                - 水平方向: "left"/"左", "right"/"右", "center"/"中"
+        """
         try:
             if self._is_ios():
                 ios_client = self._get_ios_client()
@@ -1172,14 +1180,24 @@ class BasicMobileToolsLite:
                     return {"success": False, "message": f"❌ 文本不存在: {text}"}
             else:
                 # 🔍 先查 XML 树，找到元素及其属性
-                found_elem = self._find_element_in_tree(text)
+                found_elem = self._find_element_in_tree(text, position=position)
                 
                 if found_elem:
                     attr_type = found_elem['attr_type']
                     attr_value = found_elem['attr_value']
                     bounds = found_elem.get('bounds')
                     
-                    # 根据找到的属性类型，使用对应的选择器
+                    # 如果有位置参数，直接使用坐标点击（避免 u2 选择器匹配到错误的元素）
+                    if position and bounds:
+                        x = (bounds[0] + bounds[2]) // 2
+                        y = (bounds[1] + bounds[3]) // 2
+                        self.client.u2.click(x, y)
+                        time.sleep(0.3)
+                        position_info = f" ({position})" if position else ""
+                        self._record_operation('click', element=text, x=x, y=y, ref=f"coords:{x},{y}")
+                        return {"success": True, "message": f"✅ 点击成功(坐标定位): '{text}'{position_info} @ ({x},{y})"}
+                    
+                    # 没有位置参数时，使用选择器定位
                     if attr_type == 'text':
                         elem = self.client.u2(text=attr_value)
                     elif attr_type == 'textContains':
@@ -1194,8 +1212,9 @@ class BasicMobileToolsLite:
                     if elem and elem.exists(timeout=1):
                         elem.click()
                         time.sleep(0.3)
+                        position_info = f" ({position})" if position else ""
                         self._record_operation('click', element=text, ref=f"{attr_type}:{attr_value}")
-                        return {"success": True, "message": f"✅ 点击成功({attr_type}): '{text}'"}
+                        return {"success": True, "message": f"✅ 点击成功({attr_type}): '{text}'{position_info}"}
                     
                     # 如果选择器失败，用坐标兜底
                     if bounds:
@@ -1203,24 +1222,37 @@ class BasicMobileToolsLite:
                         y = (bounds[1] + bounds[3]) // 2
                         self.client.u2.click(x, y)
                         time.sleep(0.3)
+                        position_info = f" ({position})" if position else ""
                         self._record_operation('click', element=text, x=x, y=y, ref=f"coords:{x},{y}")
-                        return {"success": True, "message": f"✅ 点击成功(坐标兜底): '{text}' @ ({x},{y})"}
+                        return {"success": True, "message": f"✅ 点击成功(坐标兜底): '{text}'{position_info} @ ({x},{y})"}
                 
                 return {"success": False, "message": f"❌ 文本不存在: {text}"}
         except Exception as e:
             return {"success": False, "message": f"❌ 点击失败: {e}"}
     
-    def _find_element_in_tree(self, text: str) -> Optional[Dict]:
-        """在 XML 树中查找包含指定文本的元素"""
+    def _find_element_in_tree(self, text: str, position: Optional[str] = None) -> Optional[Dict]:
+        """在 XML 树中查找包含指定文本的元素，优先返回可点击的元素
+        
+        Args:
+            text: 要查找的文本
+            position: 位置信息，用于在有多个相同文案时筛选
+        """
         try:
             xml = self.client.u2.dump_hierarchy(compressed=False)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(xml)
             
+            # 获取屏幕尺寸
+            screen_width, screen_height = self.client.u2.window_size()
+            
+            # 存储所有匹配的元素（包括不可点击的）
+            matched_elements = []
+            
             for elem in root.iter():
                 elem_text = elem.attrib.get('text', '')
                 elem_desc = elem.attrib.get('content-desc', '')
                 bounds_str = elem.attrib.get('bounds', '')
+                clickable = elem.attrib.get('clickable', 'false').lower() == 'true'
                 
                 # 解析 bounds
                 bounds = None
@@ -1230,24 +1262,108 @@ class BasicMobileToolsLite:
                     if len(match) == 4:
                         bounds = [int(x) for x in match]
                 
+                # 判断是否匹配
+                is_match = False
+                attr_type = None
+                attr_value = None
+                
                 # 精确匹配 text
                 if elem_text == text:
-                    return {'attr_type': 'text', 'attr_value': text, 'bounds': bounds}
-                
+                    is_match = True
+                    attr_type = 'text'
+                    attr_value = text
                 # 精确匹配 content-desc
-                if elem_desc == text:
-                    return {'attr_type': 'description', 'attr_value': text, 'bounds': bounds}
-                
+                elif elem_desc == text:
+                    is_match = True
+                    attr_type = 'description'
+                    attr_value = text
                 # 模糊匹配 text
-                if text in elem_text:
-                    return {'attr_type': 'textContains', 'attr_value': text, 'bounds': bounds}
-                
+                elif text in elem_text:
+                    is_match = True
+                    attr_type = 'textContains'
+                    attr_value = text
                 # 模糊匹配 content-desc
-                if text in elem_desc:
-                    return {'attr_type': 'descriptionContains', 'attr_value': text, 'bounds': bounds}
+                elif text in elem_desc:
+                    is_match = True
+                    attr_type = 'descriptionContains'
+                    attr_value = text
+                
+                if is_match and bounds:
+                    # 计算元素的中心点坐标
+                    center_x = (bounds[0] + bounds[2]) / 2
+                    center_y = (bounds[1] + bounds[3]) / 2
+                    
+                    matched_elements.append({
+                        'attr_type': attr_type,
+                        'attr_value': attr_value,
+                        'bounds': bounds,
+                        'clickable': clickable,
+                        'center_x': center_x,
+                        'center_y': center_y
+                    })
+            
+            if not matched_elements:
+                return None
+            
+            # 如果有位置信息，根据位置筛选
+            if position and len(matched_elements) > 1:
+                position_lower = position.lower()
+                
+                # 根据位置信息排序
+                if position_lower in ['top', 'upper', '上', '上方']:
+                    # 选择 y 坐标最小的（最上面的）
+                    matched_elements = sorted(matched_elements, key=lambda x: x['center_y'])
+                elif position_lower in ['bottom', 'lower', '下', '下方', '底部']:
+                    # 选择 y 坐标最大的（最下面的）
+                    matched_elements = sorted(matched_elements, key=lambda x: x['center_y'], reverse=True)
+                elif position_lower in ['left', '左', '左侧']:
+                    # 选择 x 坐标最小的（最左边的）
+                    matched_elements = sorted(matched_elements, key=lambda x: x['center_x'])
+                elif position_lower in ['right', '右', '右侧']:
+                    # 选择 x 坐标最大的（最右边的）
+                    matched_elements = sorted(matched_elements, key=lambda x: x['center_x'], reverse=True)
+                elif position_lower in ['middle', 'center', '中', '中间']:
+                    # 选择最接近屏幕中心的
+                    screen_mid_x = screen_width / 2
+                    screen_mid_y = screen_height / 2
+                    matched_elements = sorted(
+                        matched_elements,
+                        key=lambda x: abs(x['center_x'] - screen_mid_x) + abs(x['center_y'] - screen_mid_y)
+                    )
+            
+            # 如果有位置信息，优先返回排序后的第一个元素（最符合位置要求的）
+            # 如果没有位置信息，优先返回可点击的元素
+            if position and matched_elements:
+                # 有位置信息时，直接返回排序后的第一个（最符合位置要求的）
+                first_match = matched_elements[0]
+                return {
+                    'attr_type': first_match['attr_type'],
+                    'attr_value': first_match['attr_value'],
+                    'bounds': first_match['bounds']
+                }
+            
+            # 没有位置信息时，优先返回可点击的元素
+            for match in matched_elements:
+                if match['clickable']:
+                    return {
+                        'attr_type': match['attr_type'],
+                        'attr_value': match['attr_value'],
+                        'bounds': match['bounds']
+                    }
+            
+            # 如果没有可点击的元素，直接返回第一个匹配元素的 bounds（使用坐标点击）
+            if matched_elements:
+                first_match = matched_elements[0]
+                return {
+                    'attr_type': first_match['attr_type'],
+                    'attr_value': first_match['attr_value'],
+                    'bounds': first_match['bounds']
+                }
             
             return None
-        except Exception:
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
             return None
     
     def click_by_id(self, resource_id: str, index: int = 0) -> Dict:
@@ -2304,7 +2420,6 @@ class BasicMobileToolsLite:
             for elem in root.iter():
                 text = elem.attrib.get('text', '')
                 content_desc = elem.attrib.get('content-desc', '')
-                resource_id = elem.attrib.get('resource-id', '')
                 bounds_str = elem.attrib.get('bounds', '')
                 class_name = elem.attrib.get('class', '')
                 clickable = elem.attrib.get('clickable', 'false') == 'true'
@@ -2338,13 +2453,6 @@ class BasicMobileToolsLite:
                 elif any(kw in content_desc.lower() for kw in ['关闭', 'close', 'dismiss', '跳过']):
                     score = 90
                     reason = f"描述='{content_desc}'"
-                
-                # 策略2.5：resource-id 包含关闭关键词（如 close_icon, ad_close 等）
-                elif resource_id and any(kw in resource_id.lower() for kw in ['close', 'dismiss', 'skip', 'cancel']):
-                    score = 95
-                    # 提取简短的 id 名
-                    short_id = resource_id.split('/')[-1] if '/' in resource_id else resource_id
-                    reason = f"resource-id='{short_id}'"
                 
                 # 策略3：小尺寸的 clickable 元素（可能是 X 图标）
                 elif clickable:
@@ -2380,9 +2488,7 @@ class BasicMobileToolsLite:
                         'center_y': center_y,
                         'x_percent': x_percent,
                         'y_percent': y_percent,
-                        'size': f"{width}x{height}",
-                        'resource_id': resource_id,
-                        'text': text
+                        'size': f"{width}x{height}"
                     })
             
             if not candidates:
@@ -2408,16 +2514,7 @@ class BasicMobileToolsLite:
             candidates.sort(key=lambda x: x['score'], reverse=True)
             best = candidates[0]
             
-            # 生成推荐的点击命令（优先使用 resource-id）
-            if best.get('resource_id'):
-                short_id = best['resource_id'].split('/')[-1] if '/' in best['resource_id'] else best['resource_id']
-                click_cmd = f"mobile_click_by_id('{best['resource_id']}')"
-            elif best.get('text') and best['text'] in ['×', 'X', 'x', '关闭', '取消', '跳过', '知道了']:
-                click_cmd = f"mobile_click_by_text('{best['text']}')"
-            else:
-                click_cmd = f"mobile_click_by_percent({best['x_percent']}, {best['y_percent']})"
-            
-            result = {
+            return {
                 "success": True,
                 "message": f"✅ 找到可能的关闭按钮",
                 "best_candidate": {
@@ -2428,21 +2525,13 @@ class BasicMobileToolsLite:
                     "size": best['size'],
                     "score": best['score']
                 },
-                "click_command": click_cmd,
+                "click_command": f"mobile_click_by_percent({best['x_percent']}, {best['y_percent']})",
                 "other_candidates": [
                     {"reason": c['reason'], "percent": f"({c['x_percent']}%, {c['y_percent']}%)", "score": c['score']}
                     for c in candidates[1:4]
                 ] if len(candidates) > 1 else [],
                 "screen_size": {"width": screen_width, "height": screen_height}
             }
-            
-            # 如果有 resource-id，额外提供
-            if best.get('resource_id'):
-                result["best_candidate"]["resource_id"] = best['resource_id']
-            if best.get('text'):
-                result["best_candidate"]["text"] = best['text']
-            
-            return result
             
         except Exception as e:
             return {"success": False, "message": f"❌ 查找关闭按钮失败: {e}"}
@@ -3215,8 +3304,8 @@ class BasicMobileToolsLite:
             f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
             "定位策略（按优先级）：",
-            "1. ID 定位 - 最稳定，跨设备兼容",
-            "2. 文本定位 - 稳定，跨设备兼容",
+            "1. 文本定位 - 最稳定，跨设备兼容",
+            "2. ID 定位 - 稳定，跨设备兼容",
             "3. 百分比定位 - 跨分辨率兼容（坐标自动转换）",
             f'"""',
             "import time",
@@ -3331,21 +3420,21 @@ class BasicMobileToolsLite:
                 is_coords_ref = ref.startswith('coords_') or ref.startswith('coords:')
                 is_percent_ref = ref.startswith('percent_')
                 
-                # 优先级：ID > 文本 > 百分比 > 坐标（兜底）
-                if ref and (':id/' in ref or ref.startswith('com.')):
-                    # 1️⃣ 使用 resource-id（最稳定）
-                    script_lines.append(f"    # 步骤{step_num}: 点击元素 (ID定位，最稳定)")
-                    script_lines.append(f"    safe_click(d, d(resourceId='{ref}'))")
-                elif ref and not is_coords_ref and not is_percent_ref and ':' not in ref:
-                    # 2️⃣ 使用文本（稳定）- 排除 "text:xxx" 等带冒号的格式
-                    script_lines.append(f"    # 步骤{step_num}: 点击文本 '{ref}' (文本定位)")
+                # 优先级：文本 > ID > 百分比 > 坐标（兜底）
+                if ref and not is_coords_ref and not is_percent_ref and ':' not in ref:
+                    # 1️⃣ 使用文本（最稳定，优先）- 排除 "text:xxx" 等带冒号的格式
+                    script_lines.append(f"    # 步骤{step_num}: 点击文本 '{ref}' (文本定位，最稳定)")
                     script_lines.append(f"    safe_click(d, d(text='{ref}'))")
                 elif ref and ':' in ref and not is_coords_ref and not is_percent_ref:
-                    # 2️⃣-b 使用文本（Android 的 text:xxx 或 description:xxx 格式）
+                    # 1️⃣-b 使用文本（Android 的 text:xxx 或 description:xxx 格式）
                     # 提取冒号后面的实际文本值
                     actual_text = ref.split(':', 1)[1] if ':' in ref else ref
-                    script_lines.append(f"    # 步骤{step_num}: 点击文本 '{actual_text}' (文本定位)")
+                    script_lines.append(f"    # 步骤{step_num}: 点击文本 '{actual_text}' (文本定位，最稳定)")
                     script_lines.append(f"    safe_click(d, d(text='{actual_text}'))")
+                elif ref and (':id/' in ref or ref.startswith('com.')):
+                    # 2️⃣ 使用 resource-id（稳定）
+                    script_lines.append(f"    # 步骤{step_num}: 点击元素 (ID定位)")
+                    script_lines.append(f"    safe_click(d, d(resourceId='{ref}'))")
                 elif has_percent:
                     # 3️⃣ 使用百分比（跨分辨率兼容）
                     x_pct = op['x_percent']
@@ -3411,19 +3500,20 @@ class BasicMobileToolsLite:
                 is_coords_ref = ref.startswith('coords_') or ref.startswith('coords:')
                 is_percent_ref = ref.startswith('percent_')
                 
-                # 优先级：ID > 文本 > 百分比 > 坐标
-                if ref and (':id/' in ref or ref.startswith('com.')):
-                    # 使用 resource-id
-                    script_lines.append(f"    # 步骤{step_num}: 长按元素 (ID定位，最稳定)")
-                    script_lines.append(f"    d(resourceId='{ref}').long_click(duration={duration})")
-                elif ref and not is_coords_ref and not is_percent_ref and ':' not in ref:
-                    # 使用文本
-                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{ref}' (文本定位)")
+                # 优先级：文本 > ID > 百分比 > 坐标
+                if ref and not is_coords_ref and not is_percent_ref and ':' not in ref:
+                    # 1️⃣ 使用文本（最稳定，优先）
+                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{ref}' (文本定位，最稳定)")
                     script_lines.append(f"    d(text='{ref}').long_click(duration={duration})")
                 elif ref and ':' in ref and not is_coords_ref and not is_percent_ref:
+                    # 1️⃣-b 使用文本（Android 的 text:xxx 或 description:xxx 格式）
                     actual_text = ref.split(':', 1)[1] if ':' in ref else ref
-                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{actual_text}' (文本定位)")
+                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{actual_text}' (文本定位，最稳定)")
                     script_lines.append(f"    d(text='{actual_text}').long_click(duration={duration})")
+                elif ref and (':id/' in ref or ref.startswith('com.')):
+                    # 2️⃣ 使用 resource-id（稳定）
+                    script_lines.append(f"    # 步骤{step_num}: 长按元素 (ID定位)")
+                    script_lines.append(f"    d(resourceId='{ref}').long_click(duration={duration})")
                 elif has_percent:
                     # 使用百分比
                     x_pct = op['x_percent']
@@ -3686,16 +3776,6 @@ class BasicMobileToolsLite:
                         score += 10
                         reason = f"文本含'{kw}'"
                         break
-                
-                # resource-id 匹配（如 close_icon, ad_close 等）
-                if resource_id:
-                    res_id_lower = resource_id.lower()
-                    for kw in ['close', 'dismiss', 'skip', 'cancel']:
-                        if kw in res_id_lower:
-                            score += 9
-                            short_id = resource_id.split('/')[-1] if '/' in resource_id else resource_id
-                            reason = f"resource-id='{short_id}'"
-                            break
                 
                 # content-desc 匹配
                 for kw in close_content_desc:
