@@ -663,6 +663,72 @@ class MobileMCPServer:
             }
         ))
         
+        # ==================== Toast 检测工具（仅 Android）====================
+        tools.append(Tool(
+            name="mobile_start_toast_watch",
+            description="""🔔 开始监听 Toast（仅 Android）
+
+⚠️ 【重要】必须在执行操作之前调用！
+
+📋 正确流程（三步走）：
+1️⃣ 调用 mobile_start_toast_watch() 开始监听
+2️⃣ 执行操作（如点击提交按钮）
+3️⃣ 调用 mobile_get_toast() 或 mobile_assert_toast() 获取结果
+
+❌ 错误用法：先点击按钮，再调用此工具（Toast 可能已消失）""",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_get_toast",
+            description="""🍞 获取 Toast 消息（仅 Android）
+
+Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果。
+⚠️ Toast 不在控件树中，无法通过 mobile_list_elements 获取。
+
+📋 推荐用法（三步走）：
+1️⃣ mobile_start_toast_watch() - 开始监听
+2️⃣ 执行操作（点击按钮等）
+3️⃣ mobile_get_toast() - 获取 Toast
+
+⏱️ timeout 设置等待时间，默认 5 秒。""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "timeout": {"type": "number", "description": "等待 Toast 出现的超时时间（秒），默认 5"},
+                    "reset_first": {"type": "boolean", "description": "是否先清除旧缓存，默认 False"}
+                },
+                "required": []
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_assert_toast",
+            description="""✅ 断言 Toast 消息（仅 Android）
+
+等待 Toast 出现并验证内容是否符合预期。
+
+📋 推荐用法（三步走）：
+1️⃣ mobile_start_toast_watch() - 开始监听
+2️⃣ 执行操作（点击按钮等）
+3️⃣ mobile_assert_toast(expected_text="成功") - 断言
+
+💡 支持包含匹配（默认）和精确匹配。""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "expected_text": {"type": "string", "description": "期望的 Toast 文本"},
+                    "timeout": {"type": "number", "description": "等待超时时间（秒），默认 5"},
+                    "contains": {"type": "boolean", "description": "True=包含匹配（默认），False=精确匹配"}
+                },
+                "required": ["expected_text"]
+            }
+        ))
+        
         # ==================== pytest 脚本生成 ====================
         tools.append(Tool(
             name="mobile_get_operation_history",
@@ -977,6 +1043,25 @@ class MobileMCPServer:
             
             elif name == "mobile_assert_text":
                 result = self.tools.assert_text(arguments["text"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            # Toast 检测（仅 Android）
+            elif name == "mobile_start_toast_watch":
+                result = self.tools.start_toast_watch()
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_get_toast":
+                timeout = arguments.get("timeout", 5.0)
+                reset_first = arguments.get("reset_first", False)
+                result = self.tools.get_toast(timeout=timeout, reset_first=reset_first)
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_assert_toast":
+                result = self.tools.assert_toast(
+                    expected_text=arguments["expected_text"],
+                    timeout=arguments.get("timeout", 5.0),
+                    contains=arguments.get("contains", True)
+                )
                 return [TextContent(type="text", text=self.format_response(result))]
             
             # 脚本生成

@@ -500,7 +500,7 @@ class BasicMobileToolsLite:
                 # 左侧标注 Y 坐标
                 draw.text((2, y + 2), str(y), fill=text_color, font=font_small)
             
-            # 第3步：检测弹窗并标注
+            # 第3步：检测弹窗并标注（使用严格的置信度检测，避免误识别）
             popup_info = None
             close_positions = []
             
@@ -510,35 +510,12 @@ class BasicMobileToolsLite:
                     xml_string = self.client.u2.dump_hierarchy(compressed=False)
                     root = ET.fromstring(xml_string)
                     
-                    # 检测弹窗区域
-                    popup_bounds = None
-                    for elem in root.iter():
-                        bounds_str = elem.attrib.get('bounds', '')
-                        class_name = elem.attrib.get('class', '')
-                        
-                        if not bounds_str:
-                            continue
-                        
-                        match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
-                        if not match:
-                            continue
-                        
-                        x1, y1, x2, y2 = map(int, match.groups())
-                        width = x2 - x1
-                        height = y2 - y1
-                        area = width * height
-                        screen_area = screen_width * screen_height
-                        
-                        is_container = any(kw in class_name for kw in ['Layout', 'View', 'Dialog', 'Card'])
-                        area_ratio = area / screen_area if screen_area > 0 else 0
-                        is_not_fullscreen = (width < screen_width * 0.98 or height < screen_height * 0.98)
-                        is_reasonable_size = 0.08 < area_ratio < 0.85
-                        
-                        if is_container and is_not_fullscreen and is_reasonable_size and y1 > 50:
-                            if popup_bounds is None or area > (popup_bounds[2] - popup_bounds[0]) * (popup_bounds[3] - popup_bounds[1]):
-                                popup_bounds = (x1, y1, x2, y2)
+                    # 使用严格的弹窗检测（置信度 >= 0.6 才认为是弹窗）
+                    popup_bounds, popup_confidence = self._detect_popup_with_confidence(
+                        root, screen_width, screen_height
+                    )
                     
-                    if popup_bounds:
+                    if popup_bounds and popup_confidence >= 0.6:
                         px1, py1, px2, py2 = popup_bounds
                         popup_width = px2 - px1
                         popup_height = py2 - py1
@@ -769,41 +746,19 @@ class BasicMobileToolsLite:
                     'desc': elem['desc']
                 })
             
-            # 第3.5步：检测弹窗区域（用于标注）
+            # 第3.5步：检测弹窗区域（使用严格的置信度检测，避免误识别普通页面）
             popup_bounds = None
+            popup_confidence = 0
             
             if not self._is_ios():
                 try:
-                    # 检测弹窗区域
-                    for elem in root.iter():
-                        bounds_str = elem.attrib.get('bounds', '')
-                        class_name = elem.attrib.get('class', '')
-                        
-                        if not bounds_str:
-                            continue
-                        
-                        match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
-                        if not match:
-                            continue
-                        
-                        px1, py1, px2, py2 = map(int, match.groups())
-                        p_width = px2 - px1
-                        p_height = py2 - py1
-                        p_area = p_width * p_height
-                        screen_area = screen_width * screen_height
-                        
-                        is_container = any(kw in class_name for kw in ['Layout', 'View', 'Dialog', 'Card', 'Frame'])
-                        area_ratio = p_area / screen_area if screen_area > 0 else 0
-                        is_not_fullscreen = (p_width < screen_width * 0.99 or p_height < screen_height * 0.95)
-                        # 放宽面积范围：5% - 95%
-                        is_reasonable_size = 0.05 < area_ratio < 0.95
-                        
-                        if is_container and is_not_fullscreen and is_reasonable_size and py1 > 30:
-                            if popup_bounds is None or p_area > (popup_bounds[2] - popup_bounds[0]) * (popup_bounds[3] - popup_bounds[1]):
-                                popup_bounds = (px1, py1, px2, py2)
+                    # 使用严格的弹窗检测（置信度 >= 0.6 才认为是弹窗）
+                    popup_bounds, popup_confidence = self._detect_popup_with_confidence(
+                        root, screen_width, screen_height
+                    )
                     
                     # 如果检测到弹窗，标注弹窗边界（不再猜测X按钮位置）
-                    if popup_bounds:
+                    if popup_bounds and popup_confidence >= 0.6:
                         px1, py1, px2, py2 = popup_bounds
                         
                         # 只画弹窗边框（蓝色），不再猜测X按钮位置
@@ -2533,53 +2488,13 @@ class BasicMobileToolsLite:
                 root = ET.fromstring(xml_string)
                 all_elements = list(root.iter())
                 
-                # ===== 第一步：检测弹窗区域 =====
-                # 弹窗特征：非全屏、面积较大、通常在屏幕中央的容器
-                popup_containers = []
-                for idx, elem in enumerate(all_elements):
-                    bounds_str = elem.attrib.get('bounds', '')
-                    class_name = elem.attrib.get('class', '')
-                    
-                    if not bounds_str:
-                        continue
-                    
-                    match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
-                    if not match:
-                        continue
-                    
-                    x1, y1, x2, y2 = map(int, match.groups())
-                    width = x2 - x1
-                    height = y2 - y1
-                    area = width * height
-                    screen_area = screen_width * screen_height
-                    
-                    # 弹窗容器特征：
-                    # 1. 面积在屏幕的 10%-90% 之间（非全屏）
-                    # 2. 宽度或高度不等于屏幕尺寸
-                    # 3. 是容器类型（Layout/View/Dialog）
-                    is_container = any(kw in class_name for kw in ['Layout', 'View', 'Dialog', 'Card', 'Container'])
-                    area_ratio = area / screen_area
-                    is_not_fullscreen = (width < screen_width * 0.98 or height < screen_height * 0.98)
-                    is_reasonable_size = 0.08 < area_ratio < 0.9
-                    
-                    # 排除状态栏区域（y1 通常很小）
-                    is_below_statusbar = y1 > 50
-                    
-                    if is_container and is_not_fullscreen and is_reasonable_size and is_below_statusbar:
-                        popup_containers.append({
-                            'bounds': (x1, y1, x2, y2),
-                            'bounds_str': bounds_str,
-                            'area': area,
-                            'area_ratio': area_ratio,
-                            'idx': idx,  # 元素在 XML 中的顺序（越后越上层）
-                            'class': class_name
-                        })
+                # ===== 第一步：使用严格的置信度检测弹窗区域 =====
+                popup_bounds, popup_confidence = self._detect_popup_with_confidence(
+                    root, screen_width, screen_height
+                )
                 
-                # 选择最可能的弹窗容器（优先选择：XML 顺序靠后 + 面积适中）
-                if popup_containers:
-                    # 按 XML 顺序倒序（后出现的在上层），然后按面积适中程度排序
-                    popup_containers.sort(key=lambda x: (x['idx'], -abs(x['area_ratio'] - 0.3)), reverse=True)
-                    popup_bounds = popup_containers[0]['bounds']
+                # 如果置信度不够高，记录但继续尝试查找关闭按钮
+                popup_detected = popup_bounds is not None and popup_confidence >= 0.6
                 
                 # ===== 第二步：在弹窗范围内查找关闭按钮 =====
                 for idx, elem in enumerate(all_elements):
@@ -2711,15 +2626,15 @@ class BasicMobileToolsLite:
                             'content_desc': content_desc,
                             'x_percent': round(rel_x * 100, 1),
                             'y_percent': round(rel_y * 100, 1),
-                            'in_popup': popup_bounds is not None
+                            'in_popup': popup_detected
                         })
                         
             except ET.ParseError:
                 pass
             
             if not close_candidates:
-                # 如果检测到弹窗区域，先尝试点击常见的关闭按钮位置
-                if popup_bounds:
+                # 如果检测到高置信度的弹窗区域，先尝试点击常见的关闭按钮位置
+                if popup_detected and popup_bounds:
                     px1, py1, px2, py2 = popup_bounds
                     popup_width = px2 - px1
                     popup_height = py2 - py1
@@ -2852,8 +2767,9 @@ class BasicMobileToolsLite:
                     "percent": (best['x_percent'], best['y_percent'])
                 },
                 "screenshot": screenshot_result.get("screenshot_path", ""),
-                "popup_detected": popup_bounds is not None,
-                "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
+                "popup_detected": popup_detected,
+                "popup_confidence": popup_confidence if popup_bounds else 0,
+                "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_detected else None,
                 "app_check": app_check,
                 "return_to_app": return_result,
                 "other_candidates": [
@@ -2912,6 +2828,308 @@ class BasicMobileToolsLite:
                 return 0.8
         else:  # 中间区域
             return 0.5
+
+    def _detect_popup_with_confidence(self, root, screen_width: int, screen_height: int) -> tuple:
+        """严格的弹窗检测 - 使用置信度评分，避免误识别普通页面
+        
+        真正的弹窗特征：
+        1. class 名称包含 Dialog/Popup/Alert/Modal/BottomSheet（强特征）
+        2. resource-id 包含 dialog/popup/alert/modal（强特征）
+        3. 有遮罩层（大面积半透明 View 在弹窗之前）
+        4. 居中显示且非全屏
+        5. XML 层级靠后且包含可交互元素
+        
+        Returns:
+            (popup_bounds, confidence) 或 (None, 0)
+            confidence >= 0.6 才认为是弹窗
+        """
+        import re
+        
+        screen_area = screen_width * screen_height
+        
+        # 收集所有元素信息
+        all_elements = []
+        for idx, elem in enumerate(root.iter()):
+            bounds_str = elem.attrib.get('bounds', '')
+            if not bounds_str:
+                continue
+            
+            match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+            if not match:
+                continue
+            
+            x1, y1, x2, y2 = map(int, match.groups())
+            width = x2 - x1
+            height = y2 - y1
+            area = width * height
+            
+            class_name = elem.attrib.get('class', '')
+            resource_id = elem.attrib.get('resource-id', '')
+            clickable = elem.attrib.get('clickable', 'false') == 'true'
+            
+            all_elements.append({
+                'idx': idx,
+                'bounds': (x1, y1, x2, y2),
+                'width': width,
+                'height': height,
+                'area': area,
+                'area_ratio': area / screen_area if screen_area > 0 else 0,
+                'class': class_name,
+                'resource_id': resource_id,
+                'clickable': clickable,
+                'center_x': (x1 + x2) // 2,
+                'center_y': (y1 + y2) // 2,
+            })
+        
+        if not all_elements:
+            return None, 0
+        
+        # 弹窗检测关键词
+        dialog_class_keywords = ['Dialog', 'Popup', 'Alert', 'Modal', 'BottomSheet', 'PopupWindow']
+        dialog_id_keywords = ['dialog', 'popup', 'alert', 'modal', 'bottom_sheet', 'overlay', 'mask']
+        
+        popup_candidates = []
+        has_mask_layer = False
+        mask_idx = -1
+        
+        for elem in all_elements:
+            x1, y1, x2, y2 = elem['bounds']
+            class_name = elem['class']
+            resource_id = elem['resource_id']
+            area_ratio = elem['area_ratio']
+            
+            # 检测遮罩层（大面积、几乎全屏、通常是 FrameLayout/View）
+            if area_ratio > 0.85 and elem['width'] >= screen_width * 0.95:
+                # 可能是遮罩层，记录位置
+                if 'FrameLayout' in class_name or 'View' in class_name:
+                    has_mask_layer = True
+                    mask_idx = elem['idx']
+            
+            # 跳过全屏元素
+            if area_ratio > 0.9:
+                continue
+            
+            # 跳过太小的元素
+            if area_ratio < 0.05:
+                continue
+            
+            # 跳过状态栏区域
+            if y1 < 50:
+                continue
+            
+            confidence = 0.0
+            
+            # 【强特征】class 名称包含弹窗关键词 (+0.5)
+            if any(kw in class_name for kw in dialog_class_keywords):
+                confidence += 0.5
+            
+            # 【强特征】resource-id 包含弹窗关键词 (+0.4)
+            if any(kw in resource_id.lower() for kw in dialog_id_keywords):
+                confidence += 0.4
+            
+            # 【中等特征】居中显示 (+0.2)
+            center_x = elem['center_x']
+            center_y = elem['center_y']
+            is_centered_x = abs(center_x - screen_width / 2) < screen_width * 0.15
+            is_centered_y = abs(center_y - screen_height / 2) < screen_height * 0.25
+            if is_centered_x and is_centered_y:
+                confidence += 0.2
+            elif is_centered_x:
+                confidence += 0.1
+            
+            # 【中等特征】非全屏但有一定大小 (+0.15)
+            if 0.15 < area_ratio < 0.75:
+                confidence += 0.15
+            
+            # 【弱特征】XML 顺序靠后（在视图层级上层）(+0.1)
+            if elem['idx'] > len(all_elements) * 0.5:
+                confidence += 0.1
+            
+            # 【弱特征】有遮罩层且在遮罩层之后 (+0.15)
+            if has_mask_layer and elem['idx'] > mask_idx:
+                confidence += 0.15
+            
+            # 只有达到阈值才加入候选
+            if confidence >= 0.3:
+                popup_candidates.append({
+                    'bounds': elem['bounds'],
+                    'confidence': confidence,
+                    'class': class_name,
+                    'resource_id': resource_id,
+                    'idx': elem['idx']
+                })
+        
+        if not popup_candidates:
+            return None, 0
+        
+        # 选择置信度最高的
+        popup_candidates.sort(key=lambda x: (x['confidence'], x['idx']), reverse=True)
+        best = popup_candidates[0]
+        
+        # 只有置信度 >= 0.6 才返回弹窗
+        if best['confidence'] >= 0.6:
+            return best['bounds'], best['confidence']
+        
+        return None, best['confidence']
+    
+    def start_toast_watch(self) -> Dict:
+        """开始监听 Toast（仅 Android）
+        
+        ⚠️ 必须在执行操作之前调用！
+        
+        正确流程：
+        1. 调用 mobile_start_toast_watch() 开始监听
+        2. 执行操作（如点击提交按钮）
+        3. 调用 mobile_get_toast() 获取 Toast 内容
+        
+        Returns:
+            监听状态
+        """
+        if self._is_ios():
+            return {
+                "success": False,
+                "message": "❌ iOS 不支持 Toast 检测，Toast 是 Android 特有功能"
+            }
+        
+        try:
+            # 清除缓存并开始监听
+            self.client.u2.toast.reset()
+            return {
+                "success": True,
+                "message": "✅ Toast 监听已开启，请立即执行操作，然后调用 mobile_get_toast 获取结果"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"❌ 开启 Toast 监听失败: {e}"
+            }
+    
+    def get_toast(self, timeout: float = 5.0, reset_first: bool = False) -> Dict:
+        """获取 Toast 消息（仅 Android）
+        
+        Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果。
+        
+        ⚠️ 推荐用法（两步走）：
+        1. 先调用 mobile_start_toast_watch() 开始监听
+        2. 执行操作（如点击提交按钮）
+        3. 调用 mobile_get_toast() 获取 Toast
+        
+        或者设置 reset_first=True，会自动 reset 后等待（适合操作已自动触发的场景）
+        
+        Args:
+            timeout: 等待 Toast 出现的超时时间（秒），默认 5 秒
+            reset_first: 是否先 reset（清除旧缓存），默认 False
+        
+        Returns:
+            包含 Toast 消息的字典
+        """
+        if self._is_ios():
+            return {
+                "success": False,
+                "message": "❌ iOS 不支持 Toast 检测，Toast 是 Android 特有功能"
+            }
+        
+        try:
+            if reset_first:
+                # 清除旧缓存，适合等待即将出现的 Toast
+                self.client.u2.toast.reset()
+            
+            # 等待并获取 Toast 消息
+            toast_message = self.client.u2.toast.get_message(
+                wait_timeout=timeout,
+                default=None
+            )
+            
+            if toast_message:
+                return {
+                    "success": True,
+                    "toast_found": True,
+                    "message": toast_message,
+                    "tip": "Toast 消息获取成功"
+                }
+            else:
+                return {
+                    "success": True,
+                    "toast_found": False,
+                    "message": None,
+                    "tip": f"在 {timeout} 秒内未检测到 Toast。提示：先调用 mobile_start_toast_watch，再执行操作，最后调用此工具"
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"❌ 获取 Toast 失败: {e}"
+            }
+    
+    def assert_toast(self, expected_text: str, timeout: float = 5.0, contains: bool = True) -> Dict:
+        """断言 Toast 消息（仅 Android）
+        
+        等待 Toast 出现并验证内容是否符合预期。
+        
+        ⚠️ 推荐用法：先调用 mobile_start_toast_watch，再执行操作，最后调用此工具
+        
+        Args:
+            expected_text: 期望的 Toast 文本
+            timeout: 等待超时时间（秒）
+            contains: True 表示包含匹配，False 表示精确匹配
+        
+        Returns:
+            断言结果
+        """
+        if self._is_ios():
+            return {
+                "success": False,
+                "passed": False,
+                "message": "❌ iOS 不支持 Toast 检测"
+            }
+        
+        try:
+            # 获取 Toast（不 reset，假设之前已经调用过 start_toast_watch）
+            toast_message = self.client.u2.toast.get_message(
+                wait_timeout=timeout,
+                default=None
+            )
+            
+            if toast_message is None:
+                return {
+                    "success": True,
+                    "passed": False,
+                    "expected": expected_text,
+                    "actual": None,
+                    "message": f"❌ 断言失败：未检测到 Toast 消息"
+                }
+            
+            # 匹配检查
+            if contains:
+                passed = expected_text in toast_message
+                match_type = "包含"
+            else:
+                passed = expected_text == toast_message
+                match_type = "精确"
+            
+            if passed:
+                return {
+                    "success": True,
+                    "passed": True,
+                    "expected": expected_text,
+                    "actual": toast_message,
+                    "match_type": match_type,
+                    "message": f"✅ Toast 断言通过：'{toast_message}'"
+                }
+            else:
+                return {
+                    "success": True,
+                    "passed": False,
+                    "expected": expected_text,
+                    "actual": toast_message,
+                    "match_type": match_type,
+                    "message": f"❌ Toast 断言失败：期望 '{expected_text}'，实际 '{toast_message}'"
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "passed": False,
+                "message": f"❌ Toast 断言异常: {e}"
+            }
     
     def assert_text(self, text: str) -> Dict:
         """检查页面是否包含文本（支持精确匹配和包含匹配）"""
