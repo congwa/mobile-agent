@@ -2981,6 +2981,33 @@ class BasicMobileToolsLite:
         has_mask_layer = False
         mask_idx = -1
         
+        # 【新增】检测浮动关闭按钮（小尺寸 clickable ImageView，位于屏幕中央偏上）
+        floating_close_buttons = []
+        for elem in all_elements:
+            x1, y1, x2, y2 = elem['bounds']
+            class_name = elem['class']
+            width = elem['width']
+            height = elem['height']
+            
+            # 浮动关闭按钮特征：
+            # 1. 小尺寸（50-200px）
+            # 2. clickable 或 ImageView
+            # 3. 位于屏幕中央区域的上半部分
+            # 4. 接近正方形
+            is_small = 50 < width < 200 and 50 < height < 200
+            is_square_like = 0.5 < (width / height if height > 0 else 0) < 2.0
+            is_clickable_image = elem['clickable'] or 'Image' in class_name
+            is_upper_center = (screen_width * 0.2 < x1 < screen_width * 0.8 and 
+                              y1 < screen_height * 0.5)
+            
+            if is_small and is_square_like and is_clickable_image and is_upper_center:
+                floating_close_buttons.append({
+                    'bounds': elem['bounds'],
+                    'center_x': elem['center_x'],
+                    'center_y': elem['center_y'],
+                    'idx': elem['idx']
+                })
+        
         for elem in all_elements:
             x1, y1, x2, y2 = elem['bounds']
             class_name = elem['class']
@@ -3037,6 +3064,19 @@ class BasicMobileToolsLite:
             # 【弱特征】有遮罩层且在遮罩层之后 (+0.15)
             if has_mask_layer and elem['idx'] > mask_idx:
                 confidence += 0.15
+            
+            # 【新增强特征】有浮动关闭按钮在此容器上方附近 (+0.4)
+            # 这是很多 App 弹窗的典型设计：内容区域 + 上方的 X 按钮
+            for close_btn in floating_close_buttons:
+                btn_x, btn_y = close_btn['center_x'], close_btn['center_y']
+                # 检查关闭按钮是否在容器的上方（扩大范围到 400px）
+                is_above_container = (
+                    x1 - 100 < btn_x < x2 + 100 and  # 在容器水平范围内
+                    y1 - 400 < btn_y < y1 + 100       # 在容器上方 400px 范围内
+                )
+                if is_above_container:
+                    confidence += 0.4
+                    break  # 只加一次分
             
             # 只有达到阈值才加入候选
             if confidence >= 0.3:
