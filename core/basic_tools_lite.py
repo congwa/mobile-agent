@@ -48,11 +48,86 @@ class BasicMobileToolsLite:
         return None
     
     def _record_operation(self, action: str, **kwargs):
-        """记录操作到历史"""
+        """记录操作到历史（旧接口，保持兼容）"""
         record = {
             'action': action,
             'timestamp': datetime.now().isoformat(),
             **kwargs
+        }
+        self.operation_history.append(record)
+    
+    def _record_click(self, locator_type: str, locator_value: str, 
+                      x_percent: float = 0, y_percent: float = 0,
+                      element_desc: str = '', locator_attr: str = ''):
+        """记录点击操作（标准格式）
+        
+        Args:
+            locator_type: 定位类型 'text' | 'id' | 'percent' | 'coords'
+            locator_value: 定位值（文本内容、resource-id、或坐标描述）
+            x_percent: 百分比 X 坐标（兜底方案）
+            y_percent: 百分比 Y 坐标（兜底方案）
+            element_desc: 元素描述（用于脚本注释）
+            locator_attr: Android 选择器属性 'text'|'textContains'|'description'|'descriptionContains'
+        """
+        record = {
+            'action': 'click',
+            'timestamp': datetime.now().isoformat(),
+            'locator_type': locator_type,
+            'locator_value': locator_value,
+            'locator_attr': locator_attr or locator_type,  # 默认与 type 相同
+            'x_percent': x_percent,
+            'y_percent': y_percent,
+            'element_desc': element_desc or locator_value,
+        }
+        self.operation_history.append(record)
+    
+    def _record_long_press(self, locator_type: str, locator_value: str,
+                           duration: float = 1.0,
+                           x_percent: float = 0, y_percent: float = 0,
+                           element_desc: str = '', locator_attr: str = ''):
+        """记录长按操作（标准格式）"""
+        record = {
+            'action': 'long_press',
+            'timestamp': datetime.now().isoformat(),
+            'locator_type': locator_type,
+            'locator_value': locator_value,
+            'locator_attr': locator_attr or locator_type,
+            'duration': duration,
+            'x_percent': x_percent,
+            'y_percent': y_percent,
+            'element_desc': element_desc or locator_value,
+        }
+        self.operation_history.append(record)
+    
+    def _record_input(self, text: str, locator_type: str = '', locator_value: str = '',
+                      x_percent: float = 0, y_percent: float = 0):
+        """记录输入操作（标准格式）"""
+        record = {
+            'action': 'input',
+            'timestamp': datetime.now().isoformat(),
+            'text': text,
+            'locator_type': locator_type,
+            'locator_value': locator_value,
+            'x_percent': x_percent,
+            'y_percent': y_percent,
+        }
+        self.operation_history.append(record)
+    
+    def _record_swipe(self, direction: str):
+        """记录滑动操作"""
+        record = {
+            'action': 'swipe',
+            'timestamp': datetime.now().isoformat(),
+            'direction': direction,
+        }
+        self.operation_history.append(record)
+    
+    def _record_key(self, key: str):
+        """记录按键操作"""
+        record = {
+            'action': 'press_key',
+            'timestamp': datetime.now().isoformat(),
+            'key': key,
         }
         self.operation_history.append(record)
     
@@ -432,7 +507,7 @@ class BasicMobileToolsLite:
         except Exception as e:
             return {"success": False, "message": f"❌ 截图失败: {e}"}
     
-    def take_screenshot_with_grid(self, grid_size: int = 100, show_popup_hints: bool = True) -> Dict:
+    def take_screenshot_with_grid(self, grid_size: int = 100, show_popup_hints: bool = False) -> Dict:
         """截图并添加网格坐标标注（用于精确定位元素）
         
         在截图上绘制网格线和坐标刻度，帮助快速定位元素位置。
@@ -743,7 +818,9 @@ class BasicMobileToolsLite:
                     'index': i + 1,
                     'center': (cx, cy),
                     'bounds': f"[{x1},{y1}][{x2},{y2}]",
-                    'desc': elem['desc']
+                    'desc': elem['desc'],
+                    'text': elem.get('text', ''),
+                    'resource_id': elem.get('resource_id', '')
                 })
             
             # 第3.5步：检测弹窗区域（使用严格的置信度检测，避免误识别普通页面）
@@ -869,11 +946,39 @@ class BasicMobileToolsLite:
                 ios_client = self._get_ios_client()
                 if ios_client and hasattr(ios_client, 'wda'):
                     ios_client.wda.click(cx, cy)
+                    size = ios_client.wda.window_size()
+                    screen_width, screen_height = size[0], size[1]
             else:
                 self.client.u2.click(cx, cy)
-            
+                info = self.client.u2.info
+                screen_width = info.get('displayWidth', 0)
+                screen_height = info.get('displayHeight', 0)
+
             time.sleep(0.3)
             
+            # 计算百分比坐标用于跨设备兼容
+            x_percent = round(cx / screen_width * 100, 1) if screen_width > 0 else 0
+            y_percent = round(cy / screen_height * 100, 1) if screen_height > 0 else 0
+            
+            # 使用标准记录格式
+            # 优先使用元素的文本/描述信息，这样生成脚本时可以用文本定位
+            elem_text = target.get('text', '')
+            elem_id = target.get('resource_id', '')
+            elem_desc = target.get('desc', '')
+            
+            if elem_text and not elem_text.startswith('['):  # 排除类似 "[可点击]" 的描述
+                # 有文本，使用文本定位
+                self._record_click('text', elem_text, x_percent, y_percent,
+                                  element_desc=f"[{index}]{elem_desc}", locator_attr='text')
+            elif elem_id:
+                # 有 resource-id，使用 ID 定位
+                self._record_click('id', elem_id, x_percent, y_percent,
+                                  element_desc=f"[{index}]{elem_desc}")
+            else:
+                # 都没有，使用百分比定位
+                self._record_click('percent', f"{x_percent}%,{y_percent}%", x_percent, y_percent,
+                                  element_desc=f"[{index}]{elem_desc}")
+
             return {
                 "success": True,
                 "message": f"✅ 已点击 [{index}] {target['desc']} → ({cx}, {cy})\n💡 建议：再次截图确认操作是否成功",
@@ -1032,17 +1137,9 @@ class BasicMobileToolsLite:
             x_percent = round(x / screen_width * 100, 1) if screen_width > 0 else 0
             y_percent = round(y / screen_height * 100, 1) if screen_height > 0 else 0
             
-            # 记录操作（包含屏幕尺寸和百分比，便于脚本生成时转换）
-            self._record_operation(
-                'click', 
-                x=x, 
-                y=y, 
-                x_percent=x_percent,
-                y_percent=y_percent,
-                screen_width=screen_width,
-                screen_height=screen_height,
-                ref=f"coords_{x}_{y}"
-            )
+            # 使用标准记录格式：坐标点击用百分比作为定位方式（跨分辨率兼容）
+            self._record_click('percent', f"{x_percent}%,{y_percent}%", x_percent, y_percent,
+                              element_desc=f"坐标({x},{y})")
             
             # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
             app_check = self._check_app_switched()
@@ -1133,17 +1230,9 @@ class BasicMobileToolsLite:
             
             time.sleep(0.3)
             
-            # 第4步：记录操作（同时记录百分比和像素）
-            self._record_operation(
-                'click',
-                x=x,
-                y=y,
-                x_percent=x_percent,
-                y_percent=y_percent,
-                screen_width=width,
-                screen_height=height,
-                ref=f"percent_{x_percent}_{y_percent}"
-            )
+            # 第4步：使用标准记录格式
+            self._record_click('percent', f"{x_percent}%,{y_percent}%", x_percent, y_percent,
+                              element_desc=f"百分比({x_percent}%,{y_percent}%)")
             
             return {
                 "success": True,
@@ -1175,10 +1264,14 @@ class BasicMobileToolsLite:
                     if elem.exists:
                         elem.click()
                         time.sleep(0.3)
-                        self._record_operation('click', element=text, ref=text)
+                        # 使用标准记录格式
+                        self._record_click('text', text, element_desc=text, locator_attr='text')
                         return {"success": True, "message": f"✅ 点击成功: '{text}'"}
                     return {"success": False, "message": f"❌ 文本不存在: {text}"}
             else:
+                # 获取屏幕尺寸用于计算百分比
+                screen_width, screen_height = self.client.u2.window_size()
+                
                 # 🔍 先查 XML 树，找到元素及其属性
                 found_elem = self._find_element_in_tree(text, position=position)
                 
@@ -1187,6 +1280,14 @@ class BasicMobileToolsLite:
                     attr_value = found_elem['attr_value']
                     bounds = found_elem.get('bounds')
                     
+                    # 计算百分比坐标作为兜底
+                    x_pct, y_pct = 0, 0
+                    if bounds:
+                        cx = (bounds[0] + bounds[2]) // 2
+                        cy = (bounds[1] + bounds[3]) // 2
+                        x_pct = round(cx / screen_width * 100, 1)
+                        y_pct = round(cy / screen_height * 100, 1)
+                    
                     # 如果有位置参数，直接使用坐标点击（避免 u2 选择器匹配到错误的元素）
                     if position and bounds:
                         x = (bounds[0] + bounds[2]) // 2
@@ -1194,7 +1295,9 @@ class BasicMobileToolsLite:
                         self.client.u2.click(x, y)
                         time.sleep(0.3)
                         position_info = f" ({position})" if position else ""
-                        self._record_operation('click', element=text, x=x, y=y, ref=f"coords:{x},{y}")
+                        # 虽然用坐标点击，但记录时仍使用文本定位（脚本更稳定）
+                        self._record_click('text', attr_value, x_pct, y_pct, 
+                                          element_desc=f"{text}{position_info}", locator_attr=attr_type)
                         return {"success": True, "message": f"✅ 点击成功(坐标定位): '{text}'{position_info} @ ({x},{y})"}
                     
                     # 没有位置参数时，使用选择器定位
@@ -1213,7 +1316,9 @@ class BasicMobileToolsLite:
                         elem.click()
                         time.sleep(0.3)
                         position_info = f" ({position})" if position else ""
-                        self._record_operation('click', element=text, ref=f"{attr_type}:{attr_value}")
+                        # 使用标准记录格式：文本定位
+                        self._record_click('text', attr_value, x_pct, y_pct,
+                                          element_desc=text, locator_attr=attr_type)
                         return {"success": True, "message": f"✅ 点击成功({attr_type}): '{text}'{position_info}"}
                     
                     # 如果选择器失败，用坐标兜底
@@ -1223,7 +1328,9 @@ class BasicMobileToolsLite:
                         self.client.u2.click(x, y)
                         time.sleep(0.3)
                         position_info = f" ({position})" if position else ""
-                        self._record_operation('click', element=text, x=x, y=y, ref=f"coords:{x},{y}")
+                        # 选择器失败，用百分比作为兜底
+                        self._record_click('percent', f"{x_pct}%,{y_pct}%", x_pct, y_pct,
+                                          element_desc=f"{text}{position_info}")
                         return {"success": True, "message": f"✅ 点击成功(坐标兜底): '{text}'{position_info} @ ({x},{y})"}
                 
                 return {"success": False, "message": f"❌ 文本不存在: {text}"}
@@ -1368,14 +1475,14 @@ class BasicMobileToolsLite:
     
     def click_by_id(self, resource_id: str, index: int = 0) -> Dict:
         """通过 resource-id 点击（支持点击第 N 个元素）
-        
+
         Args:
             resource_id: 元素的 resource-id
             index: 第几个元素（从 0 开始），默认 0 表示第一个
         """
         try:
             index_desc = f"[{index}]" if index > 0 else ""
-            
+
             if self._is_ios():
                 ios_client = self._get_ios_client()
                 if ios_client and hasattr(ios_client, 'wda'):
@@ -1388,7 +1495,8 @@ class BasicMobileToolsLite:
                         if index < len(elements):
                             elements[index].click()
                             time.sleep(0.3)
-                            self._record_operation('click', element=f"{resource_id}{index_desc}", ref=resource_id, index=index)
+                            # 使用标准记录格式
+                            self._record_click('id', resource_id, element_desc=f"{resource_id}{index_desc}")
                             return {"success": True, "message": f"✅ 点击成功: {resource_id}{index_desc}"}
                         else:
                             return {"success": False, "message": f"❌ 索引超出范围: 找到 {len(elements)} 个元素，但请求索引 {index}"}
@@ -1401,7 +1509,8 @@ class BasicMobileToolsLite:
                     if index < count:
                         elem[index].click()
                         time.sleep(0.3)
-                        self._record_operation('click', element=f"{resource_id}{index_desc}", ref=resource_id, index=index)
+                        # 使用标准记录格式
+                        self._record_click('id', resource_id, element_desc=f"{resource_id}{index_desc}")
                         return {"success": True, "message": f"✅ 点击成功: {resource_id}{index_desc}" + (f" (共 {count} 个)" if count > 1 else "")}
                     else:
                         return {"success": False, "message": f"❌ 索引超出范围: 找到 {count} 个元素，但请求索引 {index}"}
@@ -1488,18 +1597,9 @@ class BasicMobileToolsLite:
             x_percent = round(x / screen_width * 100, 1) if screen_width > 0 else 0
             y_percent = round(y / screen_height * 100, 1) if screen_height > 0 else 0
             
-            # 记录操作
-            self._record_operation(
-                'long_press', 
-                x=x, 
-                y=y, 
-                x_percent=x_percent,
-                y_percent=y_percent,
-                duration=duration,
-                screen_width=screen_width,
-                screen_height=screen_height,
-                ref=f"coords_{x}_{y}"
-            )
+            # 使用标准记录格式
+            self._record_long_press('percent', f"{x_percent}%,{y_percent}%", duration,
+                                   x_percent, y_percent, element_desc=f"坐标({x},{y})")
             
             if converted:
                 if conversion_type == "crop_offset":
@@ -1573,18 +1673,9 @@ class BasicMobileToolsLite:
             
             time.sleep(0.3)
             
-            # 第4步：记录操作
-            self._record_operation(
-                'long_press',
-                x=x,
-                y=y,
-                x_percent=x_percent,
-                y_percent=y_percent,
-                duration=duration,
-                screen_width=width,
-                screen_height=height,
-                ref=f"percent_{x_percent}_{y_percent}"
-            )
+            # 第4步：使用标准记录格式
+            self._record_long_press('percent', f"{x_percent}%,{y_percent}%", duration,
+                                   x_percent, y_percent, element_desc=f"百分比({x_percent}%,{y_percent}%)")
             
             return {
                 "success": True,
@@ -1621,10 +1712,13 @@ class BasicMobileToolsLite:
                         else:
                             ios_client.wda.swipe(x, y, x, y, duration=duration)
                         time.sleep(0.3)
-                        self._record_operation('long_press', element=text, duration=duration, ref=text)
+                        self._record_long_press('text', text, duration, element_desc=text, locator_attr='text')
                         return {"success": True, "message": f"✅ 长按成功: '{text}' 持续 {duration}s"}
                     return {"success": False, "message": f"❌ 文本不存在: {text}"}
             else:
+                # 获取屏幕尺寸用于计算百分比
+                screen_width, screen_height = self.client.u2.window_size()
+                
                 # 先查 XML 树，找到元素
                 found_elem = self._find_element_in_tree(text)
                 
@@ -1632,6 +1726,14 @@ class BasicMobileToolsLite:
                     attr_type = found_elem['attr_type']
                     attr_value = found_elem['attr_value']
                     bounds = found_elem.get('bounds')
+                    
+                    # 计算百分比坐标作为兜底
+                    x_pct, y_pct = 0, 0
+                    if bounds:
+                        cx = (bounds[0] + bounds[2]) // 2
+                        cy = (bounds[1] + bounds[3]) // 2
+                        x_pct = round(cx / screen_width * 100, 1)
+                        y_pct = round(cy / screen_height * 100, 1)
                     
                     # 根据找到的属性类型，使用对应的选择器
                     if attr_type == 'text':
@@ -1648,7 +1750,8 @@ class BasicMobileToolsLite:
                     if elem and elem.exists(timeout=1):
                         elem.long_click(duration=duration)
                         time.sleep(0.3)
-                        self._record_operation('long_press', element=text, duration=duration, ref=f"{attr_type}:{attr_value}")
+                        self._record_long_press('text', attr_value, duration, x_pct, y_pct,
+                                               element_desc=text, locator_attr=attr_type)
                         return {"success": True, "message": f"✅ 长按成功({attr_type}): '{text}' 持续 {duration}s"}
                     
                     # 如果选择器失败，用坐标兜底
@@ -1657,7 +1760,8 @@ class BasicMobileToolsLite:
                         y = (bounds[1] + bounds[3]) // 2
                         self.client.u2.long_click(x, y, duration=duration)
                         time.sleep(0.3)
-                        self._record_operation('long_press', element=text, x=x, y=y, duration=duration, ref=f"coords:{x},{y}")
+                        self._record_long_press('percent', f"{x_pct}%,{y_pct}%", duration, x_pct, y_pct,
+                                               element_desc=text)
                         return {"success": True, "message": f"✅ 长按成功(坐标兜底): '{text}' @ ({x},{y}) 持续 {duration}s"}
                 
                 return {"success": False, "message": f"❌ 文本不存在: {text}"}
@@ -1687,7 +1791,7 @@ class BasicMobileToolsLite:
                         else:
                             ios_client.wda.swipe(x, y, x, y, duration=duration)
                         time.sleep(0.3)
-                        self._record_operation('long_press', element=resource_id, duration=duration, ref=resource_id)
+                        self._record_long_press('id', resource_id, duration, element_desc=resource_id)
                         return {"success": True, "message": f"✅ 长按成功: {resource_id} 持续 {duration}s"}
                     return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
             else:
@@ -1695,7 +1799,7 @@ class BasicMobileToolsLite:
                 if elem.exists(timeout=0.5):
                     elem.long_click(duration=duration)
                     time.sleep(0.3)
-                    self._record_operation('long_press', element=resource_id, duration=duration, ref=resource_id)
+                    self._record_long_press('id', resource_id, duration, element_desc=resource_id)
                     return {"success": True, "message": f"✅ 长按成功: {resource_id} 持续 {duration}s"}
                 return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
         except Exception as e:
@@ -1722,7 +1826,7 @@ class BasicMobileToolsLite:
                     if elem.exists:
                         elem.set_text(text)
                         time.sleep(0.3)
-                        self._record_operation('input', element=resource_id, ref=resource_id, text=text)
+                        self._record_input(text, 'id', resource_id)
                         
                         # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
                         app_check = self._check_app_switched()
@@ -1757,7 +1861,7 @@ class BasicMobileToolsLite:
                     if count == 1:
                         elements.set_text(text)
                         time.sleep(0.3)
-                        self._record_operation('input', element=resource_id, ref=resource_id, text=text)
+                        self._record_input(text, 'id', resource_id)
                         
                         # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
                         app_check = self._check_app_switched()
@@ -1791,7 +1895,7 @@ class BasicMobileToolsLite:
                                 if info.get('editable') or info.get('focusable'):
                                     elem.set_text(text)
                                     time.sleep(0.3)
-                                    self._record_operation('input', element=resource_id, ref=resource_id, text=text)
+                                    self._record_input(text, 'id', resource_id)
                                     
                                     # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
                                     app_check = self._check_app_switched()
@@ -1819,7 +1923,7 @@ class BasicMobileToolsLite:
                         # 没找到可编辑的，用第一个
                         elements[0].set_text(text)
                         time.sleep(0.3)
-                        self._record_operation('input', element=resource_id, ref=resource_id, text=text)
+                        self._record_input(text, 'id', resource_id)
                         
                         # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
                         app_check = self._check_app_switched()
@@ -1850,7 +1954,7 @@ class BasicMobileToolsLite:
                     if et_count == 1:
                         edit_texts.set_text(text)
                         time.sleep(0.3)
-                        self._record_operation('input', element='EditText', ref='EditText', text=text)
+                        self._record_input(text, 'class', 'EditText')
                         
                         # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
                         app_check = self._check_app_switched()
@@ -1890,7 +1994,7 @@ class BasicMobileToolsLite:
                     if best_elem:
                         best_elem.set_text(text)
                         time.sleep(0.3)
-                        self._record_operation('input', element='EditText', ref='EditText', text=text)
+                        self._record_input(text, 'class', 'EditText')
                         
                         # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
                         app_check = self._check_app_switched()
@@ -2045,13 +2149,8 @@ class BasicMobileToolsLite:
             else:
                 self.client.u2.swipe(x1, y1, x2, y2, duration=0.5)
             
-            # 记录操作信息
-            record_info = {'direction': direction}
-            if y is not None:
-                record_info['y'] = y
-            if y_percent is not None:
-                record_info['y_percent'] = y_percent
-            self._record_operation('swipe', **record_info)
+            # 使用标准记录格式
+            self._record_swipe(direction)
             
             # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
             app_check = self._check_app_switched()
@@ -2114,7 +2213,7 @@ class BasicMobileToolsLite:
                 keycode = key_map.get(key.lower())
                 if keycode:
                     self.client.u2.shell(f'input keyevent {keycode}')
-                    self._record_operation('press_key', key=key)
+                    self._record_key(key)
                     return {"success": True, "message": f"✅ 按键成功: {key}"}
                 return {"success": False, "message": f"❌ 不支持的按键: {key}"}
         except Exception as e:
@@ -2981,33 +3080,6 @@ class BasicMobileToolsLite:
         has_mask_layer = False
         mask_idx = -1
         
-        # 【新增】检测浮动关闭按钮（小尺寸 clickable ImageView，位于屏幕中央偏上）
-        floating_close_buttons = []
-        for elem in all_elements:
-            x1, y1, x2, y2 = elem['bounds']
-            class_name = elem['class']
-            width = elem['width']
-            height = elem['height']
-            
-            # 浮动关闭按钮特征：
-            # 1. 小尺寸（50-200px）
-            # 2. clickable 或 ImageView
-            # 3. 位于屏幕中央区域的上半部分
-            # 4. 接近正方形
-            is_small = 50 < width < 200 and 50 < height < 200
-            is_square_like = 0.5 < (width / height if height > 0 else 0) < 2.0
-            is_clickable_image = elem['clickable'] or 'Image' in class_name
-            is_upper_center = (screen_width * 0.2 < x1 < screen_width * 0.8 and 
-                              y1 < screen_height * 0.5)
-            
-            if is_small and is_square_like and is_clickable_image and is_upper_center:
-                floating_close_buttons.append({
-                    'bounds': elem['bounds'],
-                    'center_x': elem['center_x'],
-                    'center_y': elem['center_y'],
-                    'idx': elem['idx']
-                })
-        
         for elem in all_elements:
             x1, y1, x2, y2 = elem['bounds']
             class_name = elem['class']
@@ -3064,19 +3136,6 @@ class BasicMobileToolsLite:
             # 【弱特征】有遮罩层且在遮罩层之后 (+0.15)
             if has_mask_layer and elem['idx'] > mask_idx:
                 confidence += 0.15
-            
-            # 【新增强特征】有浮动关闭按钮在此容器上方附近 (+0.4)
-            # 这是很多 App 弹窗的典型设计：内容区域 + 上方的 X 按钮
-            for close_btn in floating_close_buttons:
-                btn_x, btn_y = close_btn['center_x'], close_btn['center_y']
-                # 检查关闭按钮是否在容器的上方（扩大范围到 400px）
-                is_above_container = (
-                    x1 - 100 < btn_x < x2 + 100 and  # 在容器水平范围内
-                    y1 - 400 < btn_y < y1 + 100       # 在容器上方 400px 范围内
-                )
-                if is_above_container:
-                    confidence += 0.4
-                    break  # 只加一次分
             
             # 只有达到阈值才加入候选
             if confidence >= 0.3:
@@ -3347,8 +3406,13 @@ class BasicMobileToolsLite:
             "1. 文本定位 - 最稳定，跨设备兼容",
             "2. ID 定位 - 稳定，跨设备兼容",
             "3. 百分比定位 - 跨分辨率兼容（坐标自动转换）",
+            "",
+            "运行方式：",
+            "  pytest {filename} -v        # 使用 pytest 运行",
+            "  python {filename}           # 直接运行",
             f'"""',
             "import time",
+            "import pytest",
             "import uiautomator2 as u2",
             "",
             f'PACKAGE_NAME = "{package_name}"',
@@ -3424,22 +3488,52 @@ class BasicMobileToolsLite:
             "    return True",
             "",
             "",
-            "def test_main():",
-            "    # 连接设备",
+            "def swipe_direction(d, direction):",
+            '    """',
+            '    通用滑动方法（兼容所有 uiautomator2 版本）',
+            '    ',
+            '    Args:',
+            '        d: uiautomator2 设备对象',
+            '        direction: 滑动方向 (up/down/left/right)',
+            '    """',
+            "    info = d.info",
+            "    width = info.get('displayWidth', 0)",
+            "    height = info.get('displayHeight', 0)",
+            "    cx, cy = width // 2, height // 2",
+            "    ",
+            "    if direction == 'up':",
+            "        d.swipe(cx, int(height * 0.8), cx, int(height * 0.3))",
+            "    elif direction == 'down':",
+            "        d.swipe(cx, int(height * 0.3), cx, int(height * 0.8))",
+            "    elif direction == 'left':",
+            "        d.swipe(int(width * 0.8), cy, int(width * 0.2), cy)",
+            "    elif direction == 'right':",
+            "        d.swipe(int(width * 0.2), cy, int(width * 0.8), cy)",
+            "    return True",
+            "",
+            "",
+            "# ========== pytest fixture ==========",
+            "@pytest.fixture(scope='function')",
+            "def device():",
+            '    """pytest fixture: 连接设备并启动应用"""',
             "    d = u2.connect()",
-            "    d.implicitly_wait(10)  # 设置全局等待",
-            "    ",
-            "    # 启动应用",
-            f"    d.app_start(PACKAGE_NAME)",
-            "    time.sleep(LAUNCH_WAIT)  # 等待启动（可调整）",
-            "    ",
-            "    # 尝试关闭启动广告（可选，根据 App 情况调整）",
+            "    d.implicitly_wait(10)",
+            "    d.app_start(PACKAGE_NAME)",
+            "    time.sleep(LAUNCH_WAIT)",
             "    if CLOSE_AD_ON_LAUNCH:",
             "        close_ad_if_exists(d)",
+            "    yield d",
+            "    # 测试结束后可选择关闭应用",
+            "    # d.app_stop(PACKAGE_NAME)",
+            "",
+            "",
+            f"def test_{safe_name}(device):",
+            '    """测试用例主函数"""',
+            "    d = device",
             "    ",
         ]
         
-        # 生成操作代码（跳过启动应用相关操作，因为脚本头部已处理）
+        # 生成操作代码（使用标准记录格式，逻辑更简洁）
         step_num = 0
         for op in self.operation_history:
             action = op.get('action')
@@ -3451,131 +3545,122 @@ class BasicMobileToolsLite:
             step_num += 1
             
             if action == 'click':
-                ref = op.get('ref', '')
-                element = op.get('element', '')
-                has_coords = 'x' in op and 'y' in op
-                has_percent = 'x_percent' in op and 'y_percent' in op
+                # 新格式：使用 locator_type 和 locator_value
+                locator_type = op.get('locator_type', '')
+                locator_value = op.get('locator_value', '')
+                locator_attr = op.get('locator_attr', 'text')
+                element_desc = op.get('element_desc', '')
+                x_pct = op.get('x_percent', 0)
+                y_pct = op.get('y_percent', 0)
                 
-                # 判断 ref 是否为坐标格式（coords_ 或 coords:）
-                is_coords_ref = ref.startswith('coords_') or ref.startswith('coords:')
-                is_percent_ref = ref.startswith('percent_')
+                # 转义单引号
+                value_escaped = locator_value.replace("'", "\\'") if locator_value else ''
                 
-                # 优先级：文本 > ID > 百分比 > 坐标（兜底）
-                if ref and not is_coords_ref and not is_percent_ref and ':' not in ref:
-                    # 1️⃣ 使用文本（最稳定，优先）- 排除 "text:xxx" 等带冒号的格式
-                    script_lines.append(f"    # 步骤{step_num}: 点击文本 '{ref}' (文本定位，最稳定)")
-                    script_lines.append(f"    safe_click(d, d(text='{ref}'))")
-                elif ref and ':' in ref and not is_coords_ref and not is_percent_ref:
-                    # 1️⃣-b 使用文本（Android 的 text:xxx 或 description:xxx 格式）
-                    # 提取冒号后面的实际文本值
-                    actual_text = ref.split(':', 1)[1] if ':' in ref else ref
-                    script_lines.append(f"    # 步骤{step_num}: 点击文本 '{actual_text}' (文本定位，最稳定)")
-                    script_lines.append(f"    safe_click(d, d(text='{actual_text}'))")
-                elif ref and (':id/' in ref or ref.startswith('com.')):
-                    # 2️⃣ 使用 resource-id（稳定）
-                    script_lines.append(f"    # 步骤{step_num}: 点击元素 (ID定位)")
-                    script_lines.append(f"    safe_click(d, d(resourceId='{ref}'))")
-                elif has_percent:
-                    # 3️⃣ 使用百分比（跨分辨率兼容）
-                    x_pct = op['x_percent']
-                    y_pct = op['y_percent']
-                    desc = f" ({element})" if element else ""
-                    script_lines.append(f"    # 步骤{step_num}: 点击位置{desc} (百分比定位，跨分辨率兼容)")
-                    script_lines.append(f"    click_by_percent(d, {x_pct}, {y_pct})  # 原坐标: ({op.get('x', '?')}, {op.get('y', '?')})")
-                elif has_coords:
-                    # 4️⃣ 坐标兜底（不推荐，仅用于无法获取百分比的情况）
-                    desc = f" ({element})" if element else ""
-                    script_lines.append(f"    # 步骤{step_num}: 点击坐标{desc} (⚠️ 坐标定位，可能不兼容其他分辨率)")
-                    script_lines.append(f"    d.click({op['x']}, {op['y']})")
+                if locator_type == 'text':
+                    # 文本定位（最稳定）
+                    script_lines.append(f"    # 步骤{step_num}: 点击 '{element_desc}' (文本定位)")
+                    if locator_attr == 'description':
+                        script_lines.append(f"    safe_click(d, d(description='{value_escaped}'))")
+                    elif locator_attr == 'descriptionContains':
+                        script_lines.append(f"    safe_click(d, d(descriptionContains='{value_escaped}'))")
+                    elif locator_attr == 'textContains':
+                        script_lines.append(f"    safe_click(d, d(textContains='{value_escaped}'))")
+                    else:
+                        script_lines.append(f"    safe_click(d, d(text='{value_escaped}'))")
+                elif locator_type == 'id':
+                    # ID 定位（稳定）
+                    script_lines.append(f"    # 步骤{step_num}: 点击 '{element_desc}' (ID定位)")
+                    script_lines.append(f"    safe_click(d, d(resourceId='{value_escaped}'))")
+                elif locator_type == 'percent':
+                    # 百分比定位（跨分辨率兼容）
+                    script_lines.append(f"    # 步骤{step_num}: 点击 '{element_desc}' (百分比定位)")
+                    script_lines.append(f"    click_by_percent(d, {x_pct}, {y_pct})")
                 else:
-                    continue  # 无效操作，跳过
-                    
-                script_lines.append("    time.sleep(0.5)  # 等待响应")
+                    # 兼容旧格式
+                    ref = op.get('ref', '')
+                    if ref:
+                        ref_escaped = ref.replace("'", "\\'")
+                        script_lines.append(f"    # 步骤{step_num}: 点击 '{ref}'")
+                        script_lines.append(f"    safe_click(d, d(text='{ref_escaped}'))")
+                    else:
+                        continue
+                
+                script_lines.append("    time.sleep(0.5)")
                 script_lines.append("    ")
             
             elif action == 'input':
                 text = op.get('text', '')
-                ref = op.get('ref', '')
-                has_coords = 'x' in op and 'y' in op
-                has_percent = 'x_percent' in op and 'y_percent' in op
+                locator_type = op.get('locator_type', '')
+                locator_value = op.get('locator_value', '')
+                x_pct = op.get('x_percent', 0)
+                y_pct = op.get('y_percent', 0)
                 
-                # 判断 ref 是否为坐标格式
-                is_coords_ref = ref.startswith('coords_') or ref.startswith('coords:')
+                text_escaped = text.replace("'", "\\'")
+                value_escaped = locator_value.replace("'", "\\'") if locator_value else ''
                 
-                # 优先使用 ID，其次百分比，最后坐标
-                if ref and not is_coords_ref and (':id/' in ref or ref.startswith('com.')):
-                    # 完整格式的 resource-id
-                    script_lines.append(f"    # 步骤{step_num}: 输入文本 '{text}' (ID定位)")
-                    script_lines.append(f"    d(resourceId='{ref}').set_text('{text}')")
-                elif ref and not is_coords_ref and not has_coords:
-                    # 简短格式的 resource-id（不包含 com. 或 :id/）
-                    script_lines.append(f"    # 步骤{step_num}: 输入文本 '{text}' (ID定位)")
-                    script_lines.append(f"    d(resourceId='{ref}').set_text('{text}')")
-                elif has_percent:
-                    x_pct = op['x_percent']
-                    y_pct = op['y_percent']
-                    script_lines.append(f"    # 步骤{step_num}: 点击后输入 (百分比定位)")
+                if locator_type == 'id':
+                    script_lines.append(f"    # 步骤{step_num}: 输入 '{text}' (ID定位)")
+                    script_lines.append(f"    d(resourceId='{value_escaped}').set_text('{text_escaped}')")
+                elif locator_type == 'class':
+                    script_lines.append(f"    # 步骤{step_num}: 输入 '{text}' (类名定位)")
+                    script_lines.append(f"    d(className='android.widget.EditText').set_text('{text_escaped}')")
+                elif x_pct > 0 and y_pct > 0:
+                    script_lines.append(f"    # 步骤{step_num}: 点击后输入 '{text}'")
                     script_lines.append(f"    click_by_percent(d, {x_pct}, {y_pct})")
-                    script_lines.append(f"    time.sleep(0.3)")
-                    script_lines.append(f"    d.send_keys('{text}')")
-                elif has_coords:
-                    script_lines.append(f"    # 步骤{step_num}: 点击坐标后输入 (⚠️ 可能不兼容其他分辨率)")
-                    script_lines.append(f"    d.click({op['x']}, {op['y']})")
-                    script_lines.append(f"    time.sleep(0.3)")
-                    script_lines.append(f"    d.send_keys('{text}')")
+                    script_lines.append("    time.sleep(0.3)")
+                    script_lines.append(f"    d.send_keys('{text_escaped}')")
                 else:
-                    # 兜底：无法识别的格式，跳过
-                    continue
+                    # 兼容旧格式
+                    ref = op.get('ref', '')
+                    if ref:
+                        script_lines.append(f"    # 步骤{step_num}: 输入 '{text}'")
+                        script_lines.append(f"    d(resourceId='{ref}').set_text('{text_escaped}')")
+                    else:
+                        continue
+                
                 script_lines.append("    time.sleep(0.5)")
                 script_lines.append("    ")
             
             elif action == 'long_press':
-                ref = op.get('ref', '')
-                element = op.get('element', '')
+                locator_type = op.get('locator_type', '')
+                locator_value = op.get('locator_value', '')
+                locator_attr = op.get('locator_attr', 'text')
+                element_desc = op.get('element_desc', '')
                 duration = op.get('duration', 1.0)
-                has_coords = 'x' in op and 'y' in op
-                has_percent = 'x_percent' in op and 'y_percent' in op
+                x_pct = op.get('x_percent', 0)
+                y_pct = op.get('y_percent', 0)
                 
-                # 判断 ref 是否为坐标格式
-                is_coords_ref = ref.startswith('coords_') or ref.startswith('coords:')
-                is_percent_ref = ref.startswith('percent_')
+                value_escaped = locator_value.replace("'", "\\'") if locator_value else ''
                 
-                # 优先级：文本 > ID > 百分比 > 坐标
-                if ref and not is_coords_ref and not is_percent_ref and ':' not in ref:
-                    # 1️⃣ 使用文本（最稳定，优先）
-                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{ref}' (文本定位，最稳定)")
-                    script_lines.append(f"    d(text='{ref}').long_click(duration={duration})")
-                elif ref and ':' in ref and not is_coords_ref and not is_percent_ref:
-                    # 1️⃣-b 使用文本（Android 的 text:xxx 或 description:xxx 格式）
-                    actual_text = ref.split(':', 1)[1] if ':' in ref else ref
-                    script_lines.append(f"    # 步骤{step_num}: 长按文本 '{actual_text}' (文本定位，最稳定)")
-                    script_lines.append(f"    d(text='{actual_text}').long_click(duration={duration})")
-                elif ref and (':id/' in ref or ref.startswith('com.')):
-                    # 2️⃣ 使用 resource-id（稳定）
-                    script_lines.append(f"    # 步骤{step_num}: 长按元素 (ID定位)")
-                    script_lines.append(f"    d(resourceId='{ref}').long_click(duration={duration})")
-                elif has_percent:
-                    # 使用百分比
-                    x_pct = op['x_percent']
-                    y_pct = op['y_percent']
-                    desc = f" ({element})" if element else ""
-                    script_lines.append(f"    # 步骤{step_num}: 长按位置{desc} (百分比定位，跨分辨率兼容)")
-                    script_lines.append(f"    long_press_by_percent(d, {x_pct}, {y_pct}, duration={duration})  # 原坐标: ({op.get('x', '?')}, {op.get('y', '?')})")
-                elif has_coords:
-                    # 坐标兜底
-                    desc = f" ({element})" if element else ""
-                    script_lines.append(f"    # 步骤{step_num}: 长按坐标{desc} (⚠️ 坐标定位，可能不兼容其他分辨率)")
-                    script_lines.append(f"    d.long_click({op['x']}, {op['y']}, duration={duration})")
+                if locator_type == 'text':
+                    script_lines.append(f"    # 步骤{step_num}: 长按 '{element_desc}'")
+                    if locator_attr == 'description':
+                        script_lines.append(f"    d(description='{value_escaped}').long_click(duration={duration})")
+                    else:
+                        script_lines.append(f"    d(text='{value_escaped}').long_click(duration={duration})")
+                elif locator_type == 'id':
+                    script_lines.append(f"    # 步骤{step_num}: 长按 '{element_desc}'")
+                    script_lines.append(f"    d(resourceId='{value_escaped}').long_click(duration={duration})")
+                elif locator_type == 'percent':
+                    script_lines.append(f"    # 步骤{step_num}: 长按 '{element_desc}'")
+                    script_lines.append(f"    long_press_by_percent(d, {x_pct}, {y_pct}, duration={duration})")
                 else:
-                    continue
-                    
-                script_lines.append("    time.sleep(0.5)  # 等待响应")
+                    # 兼容旧格式
+                    ref = op.get('ref', '')
+                    if ref:
+                        ref_escaped = ref.replace("'", "\\'")
+                        script_lines.append(f"    # 步骤{step_num}: 长按 '{ref}'")
+                        script_lines.append(f"    d(text='{ref_escaped}').long_click(duration={duration})")
+                    else:
+                        continue
+                
+                script_lines.append("    time.sleep(0.5)")
                 script_lines.append("    ")
             
             elif action == 'swipe':
                 direction = op.get('direction', 'up')
                 script_lines.append(f"    # 步骤{step_num}: 滑动 {direction}")
-                script_lines.append(f"    d.swipe_ext('{direction}')")
+                script_lines.append(f"    swipe_direction(d, '{direction}')")
                 script_lines.append("    time.sleep(0.5)")
                 script_lines.append("    ")
             
@@ -3590,8 +3675,16 @@ class BasicMobileToolsLite:
             "    print('✅ 测试完成')",
             "",
             "",
+            "# ========== 直接运行入口 ==========",
             "if __name__ == '__main__':",
-            "    test_main()",
+            "    # 直接运行时，手动创建设备连接",
+            "    _d = u2.connect()",
+            "    _d.implicitly_wait(10)",
+            "    _d.app_start(PACKAGE_NAME)",
+            "    time.sleep(LAUNCH_WAIT)",
+            "    if CLOSE_AD_ON_LAUNCH:",
+            "        close_ad_if_exists(_d)",
+            f"    test_{safe_name}(_d)",
         ])
         
         script = '\n'.join(script_lines)
@@ -3600,8 +3693,11 @@ class BasicMobileToolsLite:
         output_dir = Path("tests")
         output_dir.mkdir(exist_ok=True)
         
+        # 确保文件名符合 pytest 规范（以 test_ 开头）
         if not filename.endswith('.py'):
             filename = f"{filename}.py"
+        if not filename.startswith('test_'):
+            filename = f"test_{filename}"
         
         file_path = output_dir / filename
         file_path.write_text(script, encoding='utf-8')
@@ -3609,7 +3705,7 @@ class BasicMobileToolsLite:
         return {
             "success": True,
             "file_path": str(file_path),
-            "message": f"✅ 脚本已生成: {file_path}",
+            "message": f"✅ 脚本已生成: {file_path}\n💡 运行方式: pytest {file_path} -v 或 python {file_path}",
             "operations_count": len(self.operation_history),
             "preview": script[:500] + "..."
         }

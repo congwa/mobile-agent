@@ -910,7 +910,7 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
             elif name == "mobile_screenshot_with_grid":
                 result = self.tools.take_screenshot_with_grid(
                     grid_size=arguments.get("grid_size", 100),
-                    show_popup_hints=arguments.get("show_popup_hints", True)
+                    show_popup_hints=arguments.get("show_popup_hints", False)
                 )
                 return [TextContent(type="text", text=self.format_response(result))]
             
