@@ -1250,6 +1250,8 @@ class BasicMobileToolsLite:
                         "message": f"控件树未找到文本 '{text}'，请查看截图用 click_by_som 点击",
                         "som_screenshot": som_result
                     }
+                else:
+                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
             else:
                 # 获取屏幕尺寸用于计算百分比
                 screen_width, screen_height = self.client.u2.window_size()
@@ -1497,6 +1499,8 @@ class BasicMobileToolsLite:
                         "message": f"控件树未找到 ID '{resource_id}'，请查看截图用 click_by_som 点击",
                         "som_screenshot": som_result
                     }
+                else:
+                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
             else:
                 elem = self.client.u2(resourceId=resource_id)
                 if elem.exists(timeout=0.5):
