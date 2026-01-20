@@ -8,6 +8,7 @@
 - 核心功能精简
 - 保留 pytest 脚本生成
 - 支持操作历史记录
+- Token 优化模式（省钱）
 """
 
 import asyncio
@@ -16,6 +17,19 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+
+# Token 优化配置（只精简格式，不限制数量，确保准确度）
+try:
+    from mobile_mcp.config import Config
+    TOKEN_OPTIMIZATION = Config.TOKEN_OPTIMIZATION_ENABLED
+    MAX_ELEMENTS = Config.MAX_ELEMENTS_RETURN
+    MAX_SOM_ELEMENTS = Config.MAX_SOM_ELEMENTS_RETURN
+    COMPACT_RESPONSE = Config.COMPACT_RESPONSE
+except ImportError:
+    TOKEN_OPTIMIZATION = True
+    MAX_ELEMENTS = 0  # 0 = 不限制
+    MAX_SOM_ELEMENTS = 0  # 0 = 不限制
+    COMPACT_RESPONSE = True
 
 
 class BasicMobileToolsLite:
@@ -386,6 +400,7 @@ class BasicMobileToolsLite:
                 
                 cropped_size = final_path.stat().st_size
                 
+                # 返回结果（保留原始字段名）
                 return {
                     "success": True,
                     "screenshot_path": str(final_path),
@@ -394,14 +409,7 @@ class BasicMobileToolsLite:
                     "image_width": img.width,
                     "image_height": img.height,
                     "crop_offset_x": crop_offset_x,
-                    "crop_offset_y": crop_offset_y,
-                    "file_size": f"{cropped_size/1024:.1f}KB",
-                    "message": f"🔍 局部截图已保存: {final_path}\n"
-                              f"📐 裁剪区域: ({crop_offset_x}, {crop_offset_y}) 起，{img.width}x{img.height} 像素\n"
-                              f"📦 文件大小: {cropped_size/1024:.0f}KB\n"
-                              f"🎯 【坐标换算】AI 返回坐标 (x, y) 后：\n"
-                              f"   实际屏幕坐标 = ({crop_offset_x} + x, {crop_offset_y} + y)\n"
-                              f"   或直接调用 mobile_click_at_coords(x, y, crop_offset_x={crop_offset_x}, crop_offset_y={crop_offset_y})"
+                    "crop_offset_y": crop_offset_y
                 }
             
             # ========== 情况2：全屏压缩截图 ==========
@@ -454,24 +462,16 @@ class BasicMobileToolsLite:
                 compressed_size = final_path.stat().st_size
                 saved_percent = (1 - compressed_size / original_size) * 100
                 
+                # 返回结果（保留原始字段名）
                 return {
                     "success": True,
                     "screenshot_path": str(final_path),
                     "screen_width": screen_width,
                     "screen_height": screen_height,
-                    "original_img_width": original_img_width,    # 截图原始宽度
-                    "original_img_height": original_img_height,  # 截图原始高度
-                    "image_width": image_width,                  # 压缩后宽度（AI 看到的）
-                    "image_height": image_height,                # 压缩后高度（AI 看到的）
-                    "original_size": f"{original_size/1024:.1f}KB",
-                    "compressed_size": f"{compressed_size/1024:.1f}KB",
-                    "saved_percent": f"{saved_percent:.0f}%",
-                    "message": f"📸 截图已保存: {final_path}\n"
-                              f"📐 原始尺寸: {original_img_width}x{original_img_height} → 压缩后: {image_width}x{image_height}\n"
-                              f"📦 已压缩: {original_size/1024:.0f}KB → {compressed_size/1024:.0f}KB (省 {saved_percent:.0f}%)\n"
-                              f"⚠️ 【坐标转换】AI 返回坐标后，请传入：\n"
-                              f"   image_width={image_width}, image_height={image_height},\n"
-                              f"   original_img_width={original_img_width}, original_img_height={original_img_height}"
+                    "original_img_width": original_img_width,
+                    "original_img_height": original_img_height,
+                    "image_width": image_width,
+                    "image_height": image_height
                 }
             
             # ========== 情况3：全屏不压缩截图 ==========
@@ -485,21 +485,16 @@ class BasicMobileToolsLite:
                 final_path = self.screenshot_dir / filename
                 temp_path.rename(final_path)
                 
-                # 不压缩时，用截图实际尺寸（可能和 screen_width 不同）
+                # 返回结果（保留原始字段名）
                 return {
                     "success": True,
                     "screenshot_path": str(final_path),
                     "screen_width": screen_width,
                     "screen_height": screen_height,
-                    "original_img_width": img.width,   # 截图实际尺寸
+                    "original_img_width": img.width,
                     "original_img_height": img.height,
-                    "image_width": img.width,          # 未压缩，和原图一样
-                    "image_height": img.height,
-                    "file_size": f"{original_size/1024:.1f}KB",
-                    "message": f"📸 截图已保存: {final_path}\n"
-                              f"📐 截图尺寸: {img.width}x{img.height}\n"
-                              f"📦 文件大小: {original_size/1024:.0f}KB（未压缩）\n"
-                              f"💡 未压缩，坐标可直接使用"
+                    "image_width": img.width,
+                    "image_height": img.height
                 }
         except ImportError:
             # 如果没有 PIL，回退到原始方式（不压缩）
@@ -869,21 +864,7 @@ class BasicMobileToolsLite:
             img.save(str(final_path), "JPEG", quality=85)
             temp_path.unlink()
             
-            # 构建元素列表文字
-            elements_text = "\n".join([
-                f"  [{e['index']}] {e['desc']} → ({e['center'][0]}, {e['center'][1]})"
-                for e in som_elements[:15]  # 只显示前15个
-            ])
-            if len(som_elements) > 15:
-                elements_text += f"\n  ... 还有 {len(som_elements) - 15} 个元素"
-            
-            # 构建弹窗提示文字
-            hints_text = ""
-            if popup_bounds:
-                hints_text = f"\n🎯 检测到弹窗区域（蓝色边框）\n"
-                hints_text += f"   如需关闭弹窗，请观察图片中的 X 按钮位置\n"
-                hints_text += f"   然后使用 mobile_click_by_percent(x%, y%) 点击"
-            
+            # 返回结果（保留原始字段名，确保兼容性）
             return {
                 "success": True,
                 "screenshot_path": str(final_path),
@@ -892,15 +873,9 @@ class BasicMobileToolsLite:
                 "image_width": img_width,
                 "image_height": img_height,
                 "element_count": len(som_elements),
-                "elements": som_elements,
+                "elements": som_elements,  # 完整列表，原始格式
                 "popup_detected": popup_bounds is not None,
-                "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None,
-                "message": f"📸 SoM 截图已保存: {final_path}\n"
-                          f"🏷️ 已标注 {len(som_elements)} 个可点击元素\n"
-                          f"📋 元素列表：\n{elements_text}{hints_text}\n\n"
-                          f"💡 使用方法：\n"
-                          f"   - 点击标注元素：mobile_click_by_som(编号)\n"
-                          f"   - 点击任意位置：mobile_click_by_percent(x%, y%)"
+                "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None
             }
             
         except ImportError:
@@ -2446,6 +2421,17 @@ class BasicMobileToolsLite:
                         'class': class_name
                     })
                 
+                # Token 优化：可选限制返回元素数量（默认不限制，确保准确度）
+                if TOKEN_OPTIMIZATION and MAX_ELEMENTS > 0 and len(result) > MAX_ELEMENTS:
+                    # 仅在用户明确设置 MAX_ELEMENTS_RETURN 时才截断
+                    truncated = result[:MAX_ELEMENTS]
+                    truncated.append({
+                        '_truncated': True,
+                        '_total': len(result),
+                        '_shown': MAX_ELEMENTS
+                    })
+                    return truncated
+                
                 return result
         except Exception as e:
             return [{"error": f"获取元素失败: {e}"}]
@@ -3984,7 +3970,23 @@ class BasicMobileToolsLite:
                 
                 return result
             
-            # ========== 第2步：模板匹配 ==========
+            # ========== 第2步：截图供 AI 视觉分析（推荐）==========
+            # 优先让 AI 分析截图，因为 AI 视觉能力更强
+            screenshot_result = self.take_screenshot_with_som()
+            if screenshot_result.get("success"):
+                result["success"] = False  # 需要 AI 继续操作
+                result["method"] = "AI视觉"
+                result["need_ai_click"] = True
+                result["popup_detected"] = True
+                result["screenshot"] = screenshot_result
+                result["message"] = (
+                    "⚠️ 控件树未找到关闭按钮，请查看 SoM 截图\n"
+                    "📸 截图已标注元素编号，请找到 X 按钮对应的编号\n"
+                    "💡 使用 mobile_click_by_som(编号) 点击关闭"
+                )
+                return result
+            
+            # ========== 第3步：模板匹配（兜底）==========
             screenshot_path = None
             try:
                 from .template_matcher import TemplateMatcher
@@ -4003,16 +4005,14 @@ class BasicMobileToolsLite:
                         x_pct = best["percent"]["x"]
                         y_pct = best["percent"]["y"]
                         
-                        # 点击（click_by_percent 内部已包含应用状态检查和自动返回）
+                        # 点击
                         click_result = self.click_by_percent(x_pct, y_pct)
                         time.sleep(0.5)
                         
-                        # 🎯 再次检查应用状态（确保弹窗去除没有导致应用跳转）
                         app_check = self._check_app_switched()
                         return_result = None
                         
                         if app_check['switched']:
-                            # 应用已跳转，说明弹窗去除失败，尝试返回目标应用
                             return_result = self._return_to_target_app()
                         
                         result["success"] = True
@@ -4023,12 +4023,9 @@ class BasicMobileToolsLite:
                               f"   位置: ({x_pct:.1f}%, {y_pct:.1f}%)"
                         
                         if app_check['switched']:
-                            msg += f"\n⚠️ 应用已跳转，说明弹窗去除失败"
+                            msg += f"\n⚠️ 应用已跳转"
                             if return_result:
-                                if return_result['success']:
-                                    msg += f"\n{return_result['message']}"
-                                else:
-                                    msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                                msg += f"\n{return_result['message']}"
                         
                         result["message"] = msg
                         result["app_check"] = app_check
@@ -4040,14 +4037,12 @@ class BasicMobileToolsLite:
             except Exception:
                 pass  # 模板匹配失败，继续下一步
             
-            # ========== 第3步：确实有弹窗但找不到关闭按钮 ==========
-            # 注意：到达这里说明前面已经检测到弹窗（popup_confidence >= 0.5）
+            # ========== 第4步：都失败了 ==========
             result["success"] = False
             result["method"] = None
-            result["message"] = "⚠️ 检测到弹窗但未找到关闭按钮"
-            result["need_ai_analysis"] = True
+            result["message"] = "⚠️ 检测到弹窗但所有方法都未能找到关闭按钮"
             result["popup_detected"] = True
-            result["tip"] = "💡 请调用 mobile_screenshot_with_som 截图分析，找到 X 按钮后点击"
+            result["tip"] = "💡 请手动截图分析或使用 mobile_click_by_percent 点击"
             
             return result
             

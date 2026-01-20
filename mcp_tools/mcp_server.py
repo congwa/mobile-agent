@@ -102,6 +102,13 @@ class MobileMCPServer:
         self.tools = None
         self._initialized = False
         self._last_error = None  # 保存最后一次连接失败的错误
+        
+        # Token 优化配置
+        try:
+            from mobile_mcp.config import Config
+            self._compact_desc = Config.COMPACT_TOOL_DESCRIPTION
+        except ImportError:
+            self._compact_desc = True  # 默认开启精简模式
     
     @staticmethod
     def format_response(result) -> str:
@@ -198,42 +205,55 @@ class MobileMCPServer:
         return "android"
     
     def get_tools(self):
-        """注册 MCP 工具（20 个）"""
+        """注册 MCP 工具"""
         tools = []
         
+        # 根据配置选择精简或完整描述
+        compact = getattr(self, '_compact_desc', True)
+        
         # ==================== 元素定位（优先使用）====================
-        tools.append(Tool(
-            name="mobile_list_elements",
-            description="📋 列出页面所有可交互元素\n\n"
+        if compact:
+            desc_list_elements = "📋 列出页面可交互元素。点击前先调用此工具获取 text/id 定位。"
+        else:
+            desc_list_elements = ("📋 列出页面所有可交互元素\n\n"
                        "⚠️ 【重要】点击元素前必须先调用此工具！\n"
                        "如果元素在控件树中存在，使用 click_by_text 或 click_by_id 定位。\n"
                        "只有当此工具返回空或找不到目标元素时，才使用截图+坐标方式。\n\n"
                        "📌 控件树定位优势：\n"
                        "- 实时检测元素是否存在\n"
                        "- 元素消失时会报错，不会误点击\n"
-                       "- 跨设备兼容性好",
+                       "- 跨设备兼容性好")
+        
+        tools.append(Tool(
+            name="mobile_list_elements",
+            description=desc_list_elements,
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
         # ==================== 截图（视觉兜底）====================
-        tools.append(Tool(
-            name="mobile_take_screenshot",
-            description="📸 截图查看屏幕内容\n\n"
+        if compact:
+            desc_screenshot = "📸 截图。推荐用 mobile_screenshot_with_som 代替（带元素编号）。"
+        else:
+            desc_screenshot = ("📸 截图查看屏幕内容\n\n"
                        "⚠️ 【推荐使用 mobile_screenshot_with_som 代替！】\n"
                        "SoM 截图会给元素标号，AI 可以直接说'点击几号'，更精准！\n\n"
                        "🎯 本工具仅用于：\n"
                        "- 快速确认页面状态（不需要点击时）\n"
                        "- 操作后确认结果\n"
                        "- compress=false 时可获取原始分辨率截图（用于添加模板）\n\n"
-                       "💡 如需点击元素，请用 mobile_screenshot_with_som + mobile_click_by_som",
+                       "💡 如需点击元素，请用 mobile_screenshot_with_som + mobile_click_by_som")
+        
+        tools.append(Tool(
+            name="mobile_take_screenshot",
+            description=desc_screenshot,
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "description": {"type": "string", "description": "截图描述（可选）"},
-                    "compress": {"type": "boolean", "description": "是否压缩，默认 true。设为 false 可获取原始分辨率（用于模板添加）", "default": True},
-                    "crop_x": {"type": "integer", "description": "局部裁剪中心 X 坐标（屏幕坐标，0 表示不裁剪）"},
-                    "crop_y": {"type": "integer", "description": "局部裁剪中心 Y 坐标（屏幕坐标，0 表示不裁剪）"},
-                    "crop_size": {"type": "integer", "description": "裁剪区域大小（推荐 200-400，0 表示不裁剪）"}
+                    "description": {"type": "string", "description": "截图描述"},
+                    "compress": {"type": "boolean", "description": "是否压缩", "default": True},
+                    "crop_x": {"type": "integer", "description": "裁剪中心 X"},
+                    "crop_y": {"type": "integer", "description": "裁剪中心 Y"},
+                    "crop_size": {"type": "integer", "description": "裁剪大小"}
                 },
                 "required": []
             }
@@ -245,9 +265,10 @@ class MobileMCPServer:
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
-        tools.append(Tool(
-            name="mobile_screenshot_with_som",
-            description="📸🏷️ Set-of-Mark 截图（⭐⭐ 强烈推荐！默认截图方式）\n\n"
+        if compact:
+            desc_som = "📸 SoM截图（推荐）。给元素标编号，用 click_by_som(编号) 点击。"
+        else:
+            desc_som = ("📸🏷️ Set-of-Mark 截图（⭐⭐ 强烈推荐！默认截图方式）\n\n"
                        "【智能标注】给每个可点击元素画框+编号，检测弹窗时额外标注可能的X按钮位置（黄色）。\n"
                        "AI 看图直接说'点击 3 号'，调用 mobile_click_by_som(3) 即可！\n\n"
                        "🎯 优势：\n"
@@ -258,7 +279,11 @@ class MobileMCPServer:
                        "1. 任何需要操作的场景，都先调用此工具\n"
                        "2. 看标注图，找到目标元素编号\n"
                        "3. 调用 mobile_click_by_som(编号) 精准点击\n"
-                       "4. 🔴【必须】点击后再次截图确认操作是否成功！",
+                       "4. 🔴【必须】点击后再次截图确认操作是否成功！")
+        
+        tools.append(Tool(
+            name="mobile_screenshot_with_som",
+            description=desc_som,
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
@@ -311,9 +336,10 @@ class MobileMCPServer:
         ))
         
         # ==================== 点击操作 ====================
-        tools.append(Tool(
-            name="mobile_click_by_text",
-            description="👆 通过文本点击元素（最推荐）\n\n"
+        if compact:
+            desc_click_text = "👆 通过文本点击（最推荐）。position 可选 top/bottom/left/right。"
+        else:
+            desc_click_text = ("👆 通过文本点击元素（最推荐）\n\n"
                        "✅ 最稳定的定位方式，跨设备兼容\n"
                        "✅ 实时检测元素是否存在，元素不存在会报错\n"
                        "✅ 不会误点击到其他位置\n"
@@ -322,38 +348,48 @@ class MobileMCPServer:
                        "📍 当页面有多个相同文案时，可使用 position 参数指定位置：\n"
                        "   - 垂直方向: \"top\"/\"upper\"/\"上\", \"bottom\"/\"lower\"/\"下\", \"middle\"/\"center\"/\"中\"\n"
                        "   - 水平方向: \"left\"/\"左\", \"right\"/\"右\", \"center\"/\"中\"\n"
-                       "   例如：点击\"底部\"的\"微剧\"tab，使用 position=\"bottom\"",
+                       "   例如：点击\"底部\"的\"微剧\"tab，使用 position=\"bottom\"")
+        
+        tools.append(Tool(
+            name="mobile_click_by_text",
+            description=desc_click_text,
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "description": "元素的文本内容（精确匹配）"},
-                    "position": {"type": "string", "description": "位置信息（可选）。当有多个相同文案时使用，支持：top/bottom/left/right/middle 或 上/下/左/右/中"}
+                    "text": {"type": "string", "description": "元素文本"},
+                    "position": {"type": "string", "description": "位置：top/bottom/left/right"}
                 },
                 "required": ["text"]
             }
         ))
         
-        tools.append(Tool(
-            name="mobile_click_by_id",
-            description="👆 通过 resource-id 点击元素（推荐）\n\n"
+        if compact:
+            desc_click_id = "👆 通过 resource-id 点击。index 指定第几个（从 0 开始）。"
+        else:
+            desc_click_id = ("👆 通过 resource-id 点击元素（推荐）\n\n"
                        "✅ 稳定的定位方式\n"
                        "✅ 实时检测元素是否存在，元素不存在会报错\n"
                        "📋 使用前先调用 mobile_list_elements 获取元素 ID\n"
                        "💡 当有多个相同 ID 的元素时，用 index 指定第几个（从 0 开始）\n"
-                       "💡 定位优先级：文本 > ID > 百分比 > 坐标",
+                       "💡 定位优先级：文本 > ID > 百分比 > 坐标")
+        
+        tools.append(Tool(
+            name="mobile_click_by_id",
+            description=desc_click_id,
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "resource_id": {"type": "string", "description": "元素的 resource-id"},
-                    "index": {"type": "integer", "description": "第几个元素（从 0 开始），默认 0 表示第一个", "default": 0}
+                    "resource_id": {"type": "string", "description": "resource-id"},
+                    "index": {"type": "integer", "description": "第几个（从0开始）", "default": 0}
                 },
                 "required": ["resource_id"]
             }
         ))
         
-        tools.append(Tool(
-            name="mobile_click_at_coords",
-            description="👆 点击指定坐标（兜底方案）\n\n"
+        if compact:
+            desc_click_coords = "👆 点击坐标（兜底）。优先用 click_by_text/id。"
+        else:
+            desc_click_coords = ("👆 点击指定坐标（兜底方案）\n\n"
                        "⚠️ 【重要】优先使用 mobile_click_by_text 或 mobile_click_by_id！\n"
                        "仅在 mobile_list_elements 无法获取元素时使用此工具。\n\n"
                        "⚠️ 【时序限制】截图分析期间页面可能变化：\n"
@@ -361,18 +397,22 @@ class MobileMCPServer:
                        "- 如果误点击，调用 mobile_press_key(back) 返回\n"
                        "- 对于定时弹窗（如广告），建议等待其自动消失\n\n"
                        "📐 坐标转换：截图返回的 image_width/height 等参数直接传入即可\n\n"
-                       "🔴 【必须】点击后必须再次截图确认操作是否成功！",
+                       "🔴 【必须】点击后必须再次截图确认操作是否成功！")
+        
+        tools.append(Tool(
+            name="mobile_click_at_coords",
+            description=desc_click_coords,
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "x": {"type": "number", "description": "X 坐标（来自 AI 分析截图）"},
-                    "y": {"type": "number", "description": "Y 坐标（来自 AI 分析截图）"},
-                    "image_width": {"type": "number", "description": "压缩后图片宽度（截图返回的 image_width）"},
-                    "image_height": {"type": "number", "description": "压缩后图片高度（截图返回的 image_height）"},
-                    "original_img_width": {"type": "number", "description": "原图宽度（截图返回的 original_img_width）"},
-                    "original_img_height": {"type": "number", "description": "原图高度（截图返回的 original_img_height）"},
-                    "crop_offset_x": {"type": "number", "description": "局部截图 X 偏移（裁剪截图时传入）"},
-                    "crop_offset_y": {"type": "number", "description": "局部截图 Y 偏移（裁剪截图时传入）"}
+                    "x": {"type": "number", "description": "X 坐标"},
+                    "y": {"type": "number", "description": "Y 坐标"},
+                    "image_width": {"type": "number", "description": "图片宽度"},
+                    "image_height": {"type": "number", "description": "图片高度"},
+                    "original_img_width": {"type": "number", "description": "原图宽"},
+                    "original_img_height": {"type": "number", "description": "原图高"},
+                    "crop_offset_x": {"type": "number", "description": "裁剪X偏移"},
+                    "crop_offset_y": {"type": "number", "description": "裁剪Y偏移"}
                 },
                 "required": ["x", "y"]
             }
@@ -614,9 +654,10 @@ class MobileMCPServer:
         ))
         
         # ==================== 辅助工具 ====================
-        tools.append(Tool(
-            name="mobile_find_close_button",
-            description="""🔍 智能查找关闭按钮（只找不点，返回位置）
+        if compact:
+            desc_find_close = "🔍 查找关闭按钮（只找不点）。返回坐标和推荐的点击命令。"
+        else:
+            desc_find_close = """🔍 智能查找关闭按钮（只找不点，返回位置）
 
 ⚡ 【推荐首选】遇到弹窗时优先调用此工具！无需先截图。
 
@@ -636,13 +677,18 @@ class MobileMCPServer:
 💡 使用流程：
 1. 直接调用此工具（无需先截图/列元素）
 2. 根据返回的 click_command 执行点击
-3. 如果返回 success=false，才需要截图分析""",
+3. 如果返回 success=false，才需要截图分析"""
+        
+        tools.append(Tool(
+            name="mobile_find_close_button",
+            description=desc_find_close,
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
-        tools.append(Tool(
-            name="mobile_close_popup",
-            description="""🚫 智能检测并关闭弹窗
+        if compact:
+            desc_close_popup = "🚫 智能检测并关闭弹窗。自动查找×/关闭/跳过按钮。"
+        else:
+            desc_close_popup = """🚫 智能检测并关闭弹窗
 
 ⚡ 【自动检测】会先检测是否存在弹窗：
 - 如果没有弹窗 → 直接返回"无弹窗"，不执行任何操作
@@ -658,7 +704,11 @@ class MobileMCPServer:
 - 检测弹窗区域（Dialog/Popup/Alert 等）
 - 查找小尺寸的可点击元素（优先角落位置）
 
-🔴 【必须】如果返回已点击，需再次截图确认弹窗是否真的关闭了！""",
+🔴 【必须】如果返回已点击，需再次截图确认弹窗是否真的关闭了！"""
+        
+        tools.append(Tool(
+            name="mobile_close_popup",
+            description=desc_close_popup,
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
@@ -787,9 +837,10 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
         ))
         
         # ==================== 广告弹窗关闭工具 ====================
-        tools.append(Tool(
-            name="mobile_close_ad",
-            description="""🚫 【推荐】智能检测并关闭广告弹窗
+        if compact:
+            desc_close_ad = "🚫 智能关闭广告弹窗。优先级：控件树→截图AI→模板匹配。"
+        else:
+            desc_close_ad = """🚫 【推荐】智能检测并关闭广告弹窗
 
 ⚡ 【自动检测】会先检测是否存在弹窗：
 - 如果没有弹窗 → 直接返回"无弹窗"，不执行任何操作
@@ -800,16 +851,20 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
    - 查找文本"关闭"、"跳过"、"×"等
    - 查找 resource-id 包含 close/dismiss
    
-2️⃣ **模板匹配**（次优）
-   - 用 OpenCV 匹配已保存的 X 按钮模板
+2️⃣ **截图 AI 分析**（次优）
+   - 返回 SoM 标注截图供 AI 视觉分析
+   - AI 找到 X 按钮后用 click_by_som(编号) 点击
 
-3️⃣ **返回截图供 AI 分析**（兜底）
-   - 确实有弹窗但找不到关闭按钮时
-   - AI 分析后用 mobile_click_by_percent 点击
+3️⃣ **模板匹配**（兜底）
+   - 用 OpenCV 匹配已保存的 X 按钮模板
 
 ✅ 适用场景：
 - 启动应用后检测并关闭可能出现的广告
-- 无需先截图确认弹窗是否存在""",
+- 无需先截图确认弹窗是否存在"""
+        
+        tools.append(Tool(
+            name="mobile_close_ad",
+            description=desc_close_ad,
             inputSchema={
                 "type": "object",
                 "properties": {},

@@ -102,6 +102,31 @@ class Config:
         "false"
     ).lower() == "true"
     
+    # ==================== Token 优化（省钱模式）====================
+    # 启用 Token 优化（默认开启，只精简格式，不影响准确度）
+    TOKEN_OPTIMIZATION_ENABLED: bool = os.getenv(
+        "TOKEN_OPTIMIZATION_ENABLED",
+        "true"
+    ).lower() == "true"
+    
+    # list_elements 最大返回元素数量（默认 0 = 不限制，确保准确度）
+    MAX_ELEMENTS_RETURN: int = int(os.getenv("MAX_ELEMENTS_RETURN", "0"))
+    
+    # take_screenshot_with_som 最大返回元素数量（默认 0 = 不限制）
+    MAX_SOM_ELEMENTS_RETURN: int = int(os.getenv("MAX_SOM_ELEMENTS_RETURN", "0"))
+    
+    # 精简返回信息（只移除冗余提示文字，不影响数据）
+    COMPACT_RESPONSE: bool = os.getenv(
+        "COMPACT_RESPONSE",
+        "true"
+    ).lower() == "true"
+    
+    # 精简工具描述（减少每次请求的 token）
+    COMPACT_TOOL_DESCRIPTION: bool = os.getenv(
+        "COMPACT_TOOL_DESCRIPTION",
+        "true"
+    ).lower() == "true"
+    
     @classmethod
     def get_ai_platform(cls) -> Optional[str]:
         """获取优先使用的AI平台"""
@@ -137,6 +162,13 @@ class Config:
             "device": {
                 "default_device_id": cls.DEFAULT_DEVICE_ID,
                 "lock_orientation": cls.LOCK_SCREEN_ORIENTATION,
+            },
+            "token_optimization": {
+                "enabled": cls.TOKEN_OPTIMIZATION_ENABLED,
+                "max_elements": cls.MAX_ELEMENTS_RETURN,
+                "max_som_elements": cls.MAX_SOM_ELEMENTS_RETURN,
+                "compact_response": cls.COMPACT_RESPONSE,
+                "compact_tool_desc": cls.COMPACT_TOOL_DESCRIPTION,
             }
         }
 
