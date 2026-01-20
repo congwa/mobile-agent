@@ -2825,61 +2825,20 @@ class BasicMobileToolsLite:
                 pass
             
             if not close_candidates:
-                # 如果检测到高置信度的弹窗区域，先尝试点击常见的关闭按钮位置
+                # 控件树找不到，优先截图让 AI 分析（而不是盲点）
                 if popup_detected and popup_bounds:
-                    px1, py1, px2, py2 = popup_bounds
-                    popup_width = px2 - px1
-                    popup_height = py2 - py1
-                    
-                    # 【优化】X按钮有三种常见位置：
-                    # 1. 弹窗内靠近顶部边界（内嵌X按钮）- 最常见
-                    # 2. 弹窗边界上方（浮动X按钮）
-                    # 3. 弹窗正下方（底部关闭按钮）
-                    offset_x = max(60, int(popup_width * 0.07))   # 宽度7%
-                    offset_y_above = max(35, int(popup_height * 0.025))  # 高度2.5%，在边界之上
-                    offset_y_near = max(45, int(popup_height * 0.03))    # 高度3%，紧贴顶边界内侧
-                    
-                    try_positions = [
-                        # 【最高优先级】弹窗内紧贴顶部边界
-                        (px2 - offset_x, py1 + offset_y_near, "弹窗右上角"),
-                        # 弹窗边界上方（浮动X按钮）
-                        (px2 - offset_x, py1 - offset_y_above, "弹窗右上浮"),
-                        # 弹窗正下方中间（底部关闭按钮）
-                        ((px1 + px2) // 2, py2 + max(50, int(popup_height * 0.04)), "弹窗下方中间"),
-                        # 弹窗正上方中间
-                        ((px1 + px2) // 2, py1 - 40, "弹窗正上方"),
-                    ]
-                    
-                    for try_x, try_y, position_name in try_positions:
-                        if 0 <= try_x <= screen_width and 0 <= try_y <= screen_height:
-                            self.client.u2.click(try_x, try_y)
-                            time.sleep(0.3)
-                    
-                    # 🎯 关键步骤：检查应用是否跳转，如果跳转说明弹窗去除失败，需要返回目标应用
-                    app_check = self._check_app_switched()
-                    return_result = None
-                    
-                    if app_check['switched']:
-                        # 应用已跳转，说明弹窗去除失败，尝试返回目标应用
-                        return_result = self._return_to_target_app()
-                    
-                    msg = f"✅ 已尝试点击常见关闭按钮位置"
-                    if app_check['switched']:
-                        msg += f"\n⚠️ 应用已跳转，说明弹窗去除失败"
-                        if return_result:
-                            if return_result['success']:
-                                msg += f"\n{return_result['message']}"
-                            else:
-                                msg += f"\n❌ 自动返回失败: {return_result['message']}"
-                    
-                    return {
-                        "success": True,
-                        "message": msg,
-                        "tried_positions": [p[2] for p in try_positions],
-                        "app_check": app_check,
-                        "return_to_app": return_result,
-                        "tip": "💡 建议调用 mobile_screenshot_with_som 确认弹窗是否已关闭"
-                    }
+                    # 截图供 AI 视觉分析
+                    screenshot_result = self.take_screenshot_with_som()
+                    if screenshot_result.get("success"):
+                        return {
+                            "success": False,
+                            "message": "⚠️ 控件树未找到关闭按钮，请查看 SoM 截图分析",
+                            "need_ai_click": True,
+                            "popup_detected": True,
+                            "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]",
+                            "screenshot": screenshot_result,
+                            "tip": "💡 请在截图中找到 X 按钮编号，使用 mobile_click_by_som(编号) 点击"
+                        }
             
             # 按得分排序，取最可能的
             close_candidates.sort(key=lambda x: x['score'], reverse=True)
