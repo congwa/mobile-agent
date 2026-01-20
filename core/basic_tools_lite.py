@@ -2839,6 +2839,14 @@ class BasicMobileToolsLite:
                             "screenshot": screenshot_result,
                             "tip": "💡 请在截图中找到 X 按钮编号，使用 mobile_click_by_som(编号) 点击"
                         }
+                
+                # 没有检测到弹窗，或截图失败，返回无弹窗
+                return {
+                    "success": True,
+                    "message": "ℹ️ 未找到关闭按钮",
+                    "popup_detected": popup_detected,
+                    "close_candidates": []
+                }
             
             # 按得分排序，取最可能的
             close_candidates.sort(key=lambda x: x['score'], reverse=True)
