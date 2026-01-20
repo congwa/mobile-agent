@@ -1194,7 +1194,8 @@ class BasicMobileToolsLite:
         except Exception as e:
             return {"success": False, "message": f"❌ 百分比点击失败: {e}"}
     
-    def click_by_text(self, text: str, timeout: float = 3.0, position: Optional[str] = None) -> Dict:
+    def click_by_text(self, text: str, timeout: float = 3.0, position: Optional[str] = None, 
+                       verify: Optional[str] = None) -> Dict:
         """通过文本点击 - 先查 XML 树，再精准匹配
         
         Args:
@@ -1203,6 +1204,7 @@ class BasicMobileToolsLite:
             position: 位置信息，当有多个相同文案时使用。支持：
                 - 垂直方向: "top"/"upper"/"上", "bottom"/"lower"/"下", "middle"/"center"/"中"
                 - 水平方向: "left"/"左", "right"/"右", "center"/"中"
+            verify: 可选，点击后验证的文本。如果指定，会检查该文本是否出现在页面上
         """
         try:
             if self._is_ios():
@@ -1215,7 +1217,12 @@ class BasicMobileToolsLite:
                         elem.click()
                         time.sleep(0.3)
                         self._record_click('text', text, element_desc=text, locator_attr='text')
-                        return {"success": True}
+                        # 验证逻辑
+                        if verify:
+                            return self._verify_after_click(verify, ios=True)
+                        # 返回页面文本摘要，方便确认页面变化
+                        page_texts = self._get_page_texts(10)
+                        return {"success": True, "page_texts": page_texts}
                     # 控件树找不到，提示用视觉识别
                     return {"success": False, "fallback": "vision", "msg": f"未找到'{text}'，用截图点击"}
                 else:
@@ -1248,7 +1255,12 @@ class BasicMobileToolsLite:
                         time.sleep(0.3)
                         self._record_click('text', attr_value, x_pct, y_pct, 
                                           element_desc=f"{text}({position})", locator_attr=attr_type)
-                        return {"success": True}
+                        # 验证逻辑
+                        if verify:
+                            return self._verify_after_click(verify)
+                        # 返回页面文本摘要
+                        page_texts = self._get_page_texts(10)
+                        return {"success": True, "page_texts": page_texts}
                     
                     # 没有位置参数时，使用选择器定位
                     if attr_type == 'text':
@@ -1267,7 +1279,12 @@ class BasicMobileToolsLite:
                         time.sleep(0.3)
                         self._record_click('text', attr_value, x_pct, y_pct,
                                           element_desc=text, locator_attr=attr_type)
-                        return {"success": True}
+                        # 验证逻辑
+                        if verify:
+                            return self._verify_after_click(verify)
+                        # 返回页面文本摘要
+                        page_texts = self._get_page_texts(10)
+                        return {"success": True, "page_texts": page_texts}
                     
                     # 选择器失败，用坐标兜底
                     if bounds:
@@ -1277,12 +1294,57 @@ class BasicMobileToolsLite:
                         time.sleep(0.3)
                         self._record_click('percent', f"{x_pct}%,{y_pct}%", x_pct, y_pct,
                                           element_desc=text)
-                        return {"success": True}
+                        # 验证逻辑
+                        if verify:
+                            return self._verify_after_click(verify)
+                        # 返回页面文本摘要
+                        page_texts = self._get_page_texts(10)
+                        return {"success": True, "page_texts": page_texts}
                 
                 # 控件树找不到，提示用视觉识别
                 return {"success": False, "fallback": "vision", "msg": f"未找到'{text}'，用截图点击"}
         except Exception as e:
             return {"success": False, "msg": str(e)}
+    
+    def _verify_after_click(self, verify_text: str, ios: bool = False, timeout: float = 2.0) -> Dict:
+        """点击后验证期望文本是否出现
+        
+        Args:
+            verify_text: 期望出现的文本
+            ios: 是否是 iOS 设备
+            timeout: 验证超时时间
+        
+        Returns:
+            {"success": True, "verified": True/False, "hint": "..."}
+        """
+        time.sleep(0.5)  # 等待页面更新
+        
+        try:
+            if ios:
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    exists = ios_client.wda(name=verify_text).exists or \
+                             ios_client.wda(label=verify_text).exists
+                else:
+                    exists = False
+            else:
+                # Android: 检查文本或包含文本
+                exists = self.client.u2(text=verify_text).exists(timeout=timeout) or \
+                         self.client.u2(textContains=verify_text).exists(timeout=0.5) or \
+                         self.client.u2(description=verify_text).exists(timeout=0.5)
+            
+            if exists:
+                return {"success": True, "verified": True}
+            else:
+                # 验证失败，提示可以截图确认
+                return {
+                    "success": True,  # 点击本身成功
+                    "verified": False,
+                    "expect": verify_text,
+                    "hint": "验证失败，可截图确认"
+                }
+        except Exception as e:
+            return {"success": True, "verified": False, "hint": f"验证异常: {e}"}
     
     def _find_element_in_tree(self, text: str, position: Optional[str] = None) -> Optional[Dict]:
         """在 XML 树中查找包含指定文本的元素，优先返回可点击的元素
@@ -2386,6 +2448,52 @@ class BasicMobileToolsLite:
                 return result
         except Exception as e:
             return [{"error": f"获取元素失败: {e}"}]
+    
+    def _get_page_texts(self, max_count: int = 15) -> List[str]:
+        """获取页面关键文本列表（用于点击后快速确认页面变化）
+        
+        Args:
+            max_count: 最多返回的文本数量
+            
+        Returns:
+            页面上的关键文本列表（去重）
+        """
+        try:
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    # iOS: 获取所有 StaticText 的文本
+                    elements = ios_client.wda(type='XCUIElementTypeStaticText').find_elements()
+                    texts = set()
+                    for elem in elements[:50]:  # 限制扫描数量
+                        try:
+                            name = elem.name or elem.label
+                            if name and len(name) > 1 and len(name) < 50:
+                                texts.add(name)
+                        except:
+                            pass
+                    return list(texts)[:max_count]
+                return []
+            else:
+                # Android: 快速扫描 XML 获取文本
+                xml_string = self.client.u2.dump_hierarchy(compressed=True)
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(xml_string)
+                
+                texts = set()
+                for elem in root.iter():
+                    text = elem.get('text', '').strip()
+                    desc = elem.get('content-desc', '').strip()
+                    # 只收集有意义的文本（长度2-30，非纯数字）
+                    for t in [text, desc]:
+                        if t and 2 <= len(t) <= 30 and not t.isdigit():
+                            texts.add(t)
+                    if len(texts) >= max_count * 2:  # 收集足够后停止
+                        break
+                
+                return list(texts)[:max_count]
+        except Exception:
+            return []
     
     def _has_business_id(self, resource_id: str) -> bool:
         """
