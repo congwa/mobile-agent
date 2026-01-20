@@ -112,9 +112,9 @@ class MobileMCPServer:
     
     @staticmethod
     def format_response(result) -> str:
-        """统一格式化返回值"""
+        """统一格式化返回值（Token 优化：无缩进）"""
         if isinstance(result, (dict, list)):
-            return json.dumps(result, ensure_ascii=False, indent=2)
+            return json.dumps(result, ensure_ascii=False, separators=(',', ':'))
         return str(result)
     
     async def initialize(self):
@@ -289,17 +289,11 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_click_by_som",
-            description="🎯 根据 SoM 编号点击元素\n\n"
-                       "配合 mobile_screenshot_with_som 使用。\n"
-                       "看图后直接说'点击 3 号'，调用此函数即可。\n\n"
-                       "⚠️ 【重要】点击后建议再次截图确认操作是否成功！",
+            description="🎯 根据SoM编号点击。配合screenshot_with_som使用。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "index": {
-                        "type": "integer",
-                        "description": "元素编号（从 1 开始，对应截图中的标注数字）"
-                    }
+                    "index": {"type": "integer", "description": "元素编号(从1开始)"}
                 },
                 "required": ["index"]
             }
@@ -307,29 +301,12 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_screenshot_with_grid",
-            description="📸📏 带网格坐标的截图（精确定位神器！）\n\n"
-                       "在截图上绘制网格线和坐标刻度，帮助快速定位元素位置。\n"
-                       "如果检测到弹窗，会用绿色圆圈标注可能的关闭按钮位置。\n\n"
-                       "🎯 适用场景：\n"
-                       "- 需要精确知道某个元素的坐标\n"
-                       "- 关闭广告弹窗时定位 X 按钮\n"
-                       "- 元素不在控件树中时的视觉定位\n\n"
-                       "💡 返回信息：\n"
-                       "- 带网格标注的截图\n"
-                       "- 弹窗边界坐标（如果检测到）\n"
-                       "- 可能的关闭按钮位置列表（带优先级）\n\n"
-                       "🔴 【必须】点击后必须再次截图确认操作是否成功！",
+            description="📸 带网格坐标截图。用于精确定位元素坐标。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "grid_size": {
-                        "type": "integer", 
-                        "description": "网格间距（像素），默认 100。值越小网格越密，建议 50-200"
-                    },
-                    "show_popup_hints": {
-                        "type": "boolean",
-                        "description": "是否显示弹窗关闭按钮提示位置，默认 true"
-                    }
+                    "grid_size": {"type": "integer", "description": "网格间距(px),默认100"},
+                    "show_popup_hints": {"type": "boolean", "description": "显示弹窗提示"}
                 },
                 "required": []
             }
@@ -420,15 +397,7 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_click_by_percent",
-            description="👆 通过百分比位置点击（跨设备兼容！）。\n\n"
-                       "🎯 原理：屏幕左上角是 (0%, 0%)，右下角是 (100%, 100%)\n"
-                       "📐 示例：\n"
-                       "   - (50, 50) = 屏幕正中央\n"
-                       "   - (10, 5) = 左上角附近\n"
-                       "   - (85, 90) = 右下角附近\n\n"
-                       "✅ 优势：同样的百分比在不同分辨率设备上都能点到相同相对位置\n"
-                       "💡 录制一次，多设备回放\n\n"
-                       "🔴 【必须】点击后必须再次截图确认操作是否成功！",
+            description="👆 百分比点击。(50,50)=屏幕中心。跨设备兼容。",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -442,15 +411,12 @@ class MobileMCPServer:
         # ==================== 长按操作 ====================
         tools.append(Tool(
             name="mobile_long_press_by_id",
-            description="👆 通过 resource-id 长按（⭐⭐ 最稳定！）\n\n"
-                       "✅ 最稳定的长按定位方式，跨设备完美兼容\n"
-                       "📋 使用前请先调用 mobile_list_elements 获取元素 ID\n"
-                       "💡 生成的脚本使用 d(resourceId='...').long_click() 定位，最稳定",
+            description="👆 通过resource-id长按。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "resource_id": {"type": "string", "description": "元素的 resource-id"},
-                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"}
+                    "resource_id": {"type": "string", "description": "resource-id"},
+                    "duration": {"type": "number", "description": "长按秒数,默认1.0"}
                 },
                 "required": ["resource_id"]
             }
@@ -458,15 +424,12 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_long_press_by_text",
-            description="👆 通过文本长按（⭐ 推荐！）\n\n"
-                       "✅ 优势：跨设备兼容，不受屏幕分辨率影响\n"
-                       "📋 使用前请先调用 mobile_list_elements 确认元素有文本\n"
-                       "💡 生成的脚本使用 d(text='...').long_click() 定位，稳定可靠",
+            description="👆 通过文本长按。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "description": "元素的文本内容（精确匹配）"},
-                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"}
+                    "text": {"type": "string", "description": "文本内容"},
+                    "duration": {"type": "number", "description": "长按秒数,默认1.0"}
                 },
                 "required": ["text"]
             }
@@ -474,20 +437,13 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_long_press_by_percent",
-            description="👆 通过百分比位置长按（跨设备兼容！）\n\n"
-                       "🎯 原理：屏幕左上角是 (0%, 0%)，右下角是 (100%, 100%)\n"
-                       "📐 示例：\n"
-                       "   - (50, 50) = 屏幕正中央\n"
-                       "   - (10, 5) = 左上角附近\n"
-                       "   - (85, 90) = 右下角附近\n\n"
-                       "✅ 优势：同样的百分比在不同分辨率设备上都能长按到相同相对位置\n"
-                       "💡 录制一次，多设备回放",
+            description="👆 百分比长按。(50,50)=屏幕中心。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "x_percent": {"type": "number", "description": "X 轴百分比 (0-100)"},
-                    "y_percent": {"type": "number", "description": "Y 轴百分比 (0-100)"},
-                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"}
+                    "x_percent": {"type": "number", "description": "X百分比(0-100)"},
+                    "y_percent": {"type": "number", "description": "Y百分比(0-100)"},
+                    "duration": {"type": "number", "description": "长按秒数,默认1.0"}
                 },
                 "required": ["x_percent", "y_percent"]
             }
@@ -495,28 +451,19 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_long_press_at_coords",
-            description="👆 长按指定坐标（⚠️ 兜底方案，优先用文本/ID定位！）\n\n"
-                       "🎯 仅在以下场景使用：\n"
-                       "- 游戏（Unity/Cocos）无法获取元素\n"
-                       "- mobile_list_elements 返回空\n"
-                       "- 元素没有 id 和 text\n\n"
-                       "⚠️ 【坐标转换】截图返回的参数直接传入：\n"
-                       "   - image_width/image_height: 压缩后尺寸（AI 看到的）\n"
-                       "   - original_img_width/original_img_height: 原图尺寸（用于转换）\n"
-                       "   - crop_offset_x/crop_offset_y: 局部截图偏移\n\n"
-                       "✅ 自动记录百分比坐标，生成脚本时转换为跨分辨率兼容的百分比定位",
+            description="👆 坐标长按(兜底)。优先用text/id。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "x": {"type": "number", "description": "X 坐标（来自 AI 分析截图）"},
-                    "y": {"type": "number", "description": "Y 坐标（来自 AI 分析截图）"},
-                    "duration": {"type": "number", "description": "长按持续时间（秒），默认 1.0"},
-                    "image_width": {"type": "number", "description": "压缩后图片宽度"},
-                    "image_height": {"type": "number", "description": "压缩后图片高度"},
-                    "original_img_width": {"type": "number", "description": "原图宽度"},
-                    "original_img_height": {"type": "number", "description": "原图高度"},
-                    "crop_offset_x": {"type": "number", "description": "局部截图 X 偏移"},
-                    "crop_offset_y": {"type": "number", "description": "局部截图 Y 偏移"}
+                    "x": {"type": "number", "description": "X坐标"},
+                    "y": {"type": "number", "description": "Y坐标"},
+                    "duration": {"type": "number", "description": "长按秒数"},
+                    "image_width": {"type": "number", "description": "图片宽"},
+                    "image_height": {"type": "number", "description": "图片高"},
+                    "original_img_width": {"type": "number", "description": "原图宽"},
+                    "original_img_height": {"type": "number", "description": "原图高"},
+                    "crop_offset_x": {"type": "number", "description": "裁剪X偏移"},
+                    "crop_offset_y": {"type": "number", "description": "裁剪Y偏移"}
                 },
                 "required": ["x", "y"]
             }
@@ -525,12 +472,12 @@ class MobileMCPServer:
         # ==================== 输入操作 ====================
         tools.append(Tool(
             name="mobile_input_text_by_id",
-            description="⌨️ 在输入框输入文本。需要先用 mobile_list_elements 获取输入框 ID。",
+            description="⌨️ 通过ID输入文本。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "resource_id": {"type": "string", "description": "输入框的 resource-id"},
-                    "text": {"type": "string", "description": "要输入的文本"}
+                    "resource_id": {"type": "string", "description": "resource-id"},
+                    "text": {"type": "string", "description": "输入文本"}
                 },
                 "required": ["resource_id", "text"]
             }
@@ -538,13 +485,13 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_input_at_coords",
-            description="⌨️ 点击坐标后输入文本。适合游戏等无法获取元素 ID 的场景。",
+            description="⌨️ 坐标输入文本。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "x": {"type": "number", "description": "输入框 X 坐标"},
-                    "y": {"type": "number", "description": "输入框 Y 坐标"},
-                    "text": {"type": "string", "description": "要输入的文本"}
+                    "x": {"type": "number", "description": "X坐标"},
+                    "y": {"type": "number", "description": "Y坐标"},
+                    "text": {"type": "string", "description": "输入文本"}
                 },
                 "required": ["x", "y", "text"]
             }
@@ -553,27 +500,13 @@ class MobileMCPServer:
         # ==================== 导航操作 ====================
         tools.append(Tool(
             name="mobile_swipe",
-            description="👆 滑动屏幕。方向：up/down/left/right\n\n"
-                       "💡 左右滑动时，可指定高度坐标或百分比：\n"
-                       "- y: 指定高度坐标（像素）\n"
-                       "- y_percent: 指定高度百分比 (0-100)\n"
-                       "- 两者都未指定时，使用屏幕中心高度",
+            description="👆 滑动。方向:up/down/left/right。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "direction": {
-                        "type": "string",
-                        "enum": ["up", "down", "left", "right"],
-                        "description": "滑动方向"
-                    },
-                    "y": {
-                        "type": "integer",
-                        "description": "左右滑动时指定的高度坐标（像素，0-屏幕高度）"
-                    },
-                    "y_percent": {
-                        "type": "number",
-                        "description": "左右滑动时指定的高度百分比 (0-100)"
-                    }
+                    "direction": {"type": "string", "enum": ["up", "down", "left", "right"], "description": "方向"},
+                    "y": {"type": "integer", "description": "左右滑动高度(px)"},
+                    "y_percent": {"type": "number", "description": "左右滑动高度(%)"}
                 },
                 "required": ["direction"]
             }
@@ -581,11 +514,11 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_press_key",
-            description="⌨️ 按键操作。支持：home, back, enter, search",
+            description="⌨️ 按键:home/back/enter/search。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string", "description": "按键名称：home, back, enter, search"}
+                    "key": {"type": "string", "description": "按键名"}
                 },
                 "required": ["key"]
             }
@@ -593,11 +526,11 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_wait",
-            description="⏰ 等待指定时间。用于等待页面加载、动画完成等。",
+            description="⏰ 等待指定秒数。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "seconds": {"type": "number", "description": "等待时间（秒）"}
+                    "seconds": {"type": "number", "description": "等待秒数"}
                 },
                 "required": ["seconds"]
             }
@@ -606,11 +539,11 @@ class MobileMCPServer:
         # ==================== 应用管理 ====================
         tools.append(Tool(
             name="mobile_launch_app",
-            description="🚀 启动应用。启动后建议等待 2-3 秒让页面加载。",
+            description="🚀 启动应用。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "package_name": {"type": "string", "description": "应用包名"}
+                    "package_name": {"type": "string", "description": "包名"}
                 },
                 "required": ["package_name"]
             }
@@ -622,7 +555,7 @@ class MobileMCPServer:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "package_name": {"type": "string", "description": "应用包名"}
+                    "package_name": {"type": "string", "description": "包名"}
                 },
                 "required": ["package_name"]
             }
@@ -630,11 +563,11 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_list_apps",
-            description="📦 列出已安装的应用。可按关键词过滤。",
+            description="📦 列出应用。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "filter": {"type": "string", "description": "过滤关键词（可选）"}
+                    "filter": {"type": "string", "description": "过滤词"}
                 },
                 "required": []
             }
@@ -643,13 +576,13 @@ class MobileMCPServer:
         # ==================== 设备管理 ====================
         tools.append(Tool(
             name="mobile_list_devices",
-            description="📱 列出已连接的设备。",
+            description="📱 列出设备。",
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
         tools.append(Tool(
             name="mobile_check_connection",
-            description="🔌 检查设备连接状态。",
+            description="🔌 检查连接。",
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
@@ -714,54 +647,31 @@ class MobileMCPServer:
         
         tools.append(Tool(
             name="mobile_assert_text",
-            description="✅ 检查页面是否包含指定文本。用于验证操作结果。",
+            description="✅ 检查页面是否包含文本。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "description": "要检查的文本"}
+                    "text": {"type": "string", "description": "文本"}
                 },
                 "required": ["text"]
             }
         ))
         
-        # ==================== Toast 检测工具（仅 Android）====================
+        # ==================== Toast 检测（仅 Android）====================
         tools.append(Tool(
             name="mobile_start_toast_watch",
-            description="""🔔 开始监听 Toast（仅 Android）
-
-⚠️ 【重要】必须在执行操作之前调用！
-
-📋 正确流程（三步走）：
-1️⃣ 调用 mobile_start_toast_watch() 开始监听
-2️⃣ 执行操作（如点击提交按钮）
-3️⃣ 调用 mobile_get_toast() 或 mobile_assert_toast() 获取结果
-
-❌ 错误用法：先点击按钮，再调用此工具（Toast 可能已消失）""",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
+            description="🔔 开始监听Toast。必须在操作前调用。",
+            inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
         tools.append(Tool(
             name="mobile_get_toast",
-            description="""🍞 获取 Toast 消息（仅 Android）
-
-Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果。
-⚠️ Toast 不在控件树中，无法通过 mobile_list_elements 获取。
-
-📋 推荐用法（三步走）：
-1️⃣ mobile_start_toast_watch() - 开始监听
-2️⃣ 执行操作（点击按钮等）
-3️⃣ mobile_get_toast() - 获取 Toast
-
-⏱️ timeout 设置等待时间，默认 5 秒。""",
+            description="🍞 获取Toast消息。配合start_toast_watch使用。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "timeout": {"type": "number", "description": "等待 Toast 出现的超时时间（秒），默认 5"},
-                    "reset_first": {"type": "boolean", "description": "是否先清除旧缓存，默认 False"}
+                    "timeout": {"type": "number", "description": "超时秒数,默认5"},
+                    "reset_first": {"type": "boolean", "description": "清除旧缓存"}
                 },
                 "required": []
             }
@@ -769,22 +679,13 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
         
         tools.append(Tool(
             name="mobile_assert_toast",
-            description="""✅ 断言 Toast 消息（仅 Android）
-
-等待 Toast 出现并验证内容是否符合预期。
-
-📋 推荐用法（三步走）：
-1️⃣ mobile_start_toast_watch() - 开始监听
-2️⃣ 执行操作（点击按钮等）
-3️⃣ mobile_assert_toast(expected_text="成功") - 断言
-
-💡 支持包含匹配（默认）和精确匹配。""",
+            description="✅ 断言Toast内容。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "expected_text": {"type": "string", "description": "期望的 Toast 文本"},
-                    "timeout": {"type": "number", "description": "等待超时时间（秒），默认 5"},
-                    "contains": {"type": "boolean", "description": "True=包含匹配（默认），False=精确匹配"}
+                    "expected_text": {"type": "string", "description": "期望文本"},
+                    "timeout": {"type": "number", "description": "超时秒数"},
+                    "contains": {"type": "boolean", "description": "包含匹配(默认true)"}
                 },
                 "required": ["expected_text"]
             }
@@ -793,11 +694,11 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
         # ==================== pytest 脚本生成 ====================
         tools.append(Tool(
             name="mobile_get_operation_history",
-            description="📜 获取操作历史记录。",
+            description="📜 获取操作历史。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "number", "description": "返回最近的N条记录"}
+                    "limit": {"type": "number", "description": "条数"}
                 },
                 "required": []
             }
@@ -805,32 +706,19 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
         
         tools.append(Tool(
             name="mobile_clear_operation_history",
-            description="🗑️ 清空操作历史记录。\n\n"
-                       "⚠️ 开始新的测试录制前必须调用！\n"
-                       "📋 录制流程：清空历史 → 执行操作（优先用文本/ID定位）→ 生成脚本",
+            description="🗑️ 清空操作历史。录制前调用。",
             inputSchema={"type": "object", "properties": {}, "required": []}
         ))
         
         tools.append(Tool(
             name="mobile_generate_test_script",
-            description="📝 生成 pytest 测试脚本。基于操作历史自动生成。\n\n"
-                       "⚠️ 【重要】录制操作时请优先使用稳定定位：\n"
-                       "1️⃣ 先调用 mobile_list_elements 获取元素列表\n"
-                       "2️⃣ 优先用 mobile_click_by_text（最稳定，跨设备兼容）\n"
-                       "3️⃣ 其次用 mobile_click_by_id（稳定）\n"
-                       "4️⃣ 最后才用坐标点击（会自动转百分比，跨分辨率兼容）\n\n"
-                       "使用流程：\n"
-                       "1. 清空历史 mobile_clear_operation_history\n"
-                       "2. 执行操作（优先用文本/ID定位）\n"
-                       "3. 调用此工具生成脚本\n"
-                       "4. 脚本保存到 tests/ 目录\n\n"
-                       "💡 定位优先级：文本 > ID > 百分比 > 坐标",
+            description="📝 生成pytest脚本。基于操作历史生成。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "test_name": {"type": "string", "description": "测试用例名称"},
-                    "package_name": {"type": "string", "description": "App 包名"},
-                    "filename": {"type": "string", "description": "脚本文件名（不含 .py）"}
+                    "test_name": {"type": "string", "description": "用例名"},
+                    "package_name": {"type": "string", "description": "包名"},
+                    "filename": {"type": "string", "description": "文件名(不含.py)"}
                 },
                 "required": ["test_name", "package_name", "filename"]
             }
@@ -874,19 +762,12 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
         
         tools.append(Tool(
             name="mobile_template_close",
-            description="""🎯 模板匹配关闭弹窗（仅模板匹配）
-
-只用 OpenCV 模板匹配，不走控件树。
-一般建议用 mobile_close_ad 代替（会自动先查控件树）。
-
-⚙️ 参数：
-- click: 是否点击，默认 true
-- threshold: 匹配阈值 0-1，默认 0.75""",
+            description="🎯 模板匹配关闭弹窗。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "click": {"type": "boolean", "description": "是否点击，默认 true"},
-                    "threshold": {"type": "number", "description": "匹配阈值 0-1，默认 0.75"}
+                    "click": {"type": "boolean", "description": "是否点击"},
+                    "threshold": {"type": "number", "description": "阈值0-1"}
                 },
                 "required": []
             }
@@ -894,32 +775,19 @@ Toast 是 Android 系统级的短暂提示消息，常用于显示操作结果�
         
         tools.append(Tool(
             name="mobile_template_add",
-            description="""➕ 添加 X 号模板
-
-遇到新样式 X 号时，截图并添加到模板库。
-
-⚙️ 两种方式（二选一）：
-1. 百分比定位（推荐）：提供 x_percent, y_percent, size
-2. 像素定位：提供 screenshot_path, x, y, width, height
-
-📋 流程：
-1. mobile_screenshot_with_grid 查看 X 号位置
-2. 调用此工具添加模板
-3. 下次同样 X 号就能自动匹配
-
-💡 百分比示例：X 在右上角 → x_percent=85, y_percent=12, size=80""",
+            description="➕ 添加X号模板。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "template_name": {"type": "string", "description": "模板名称"},
-                    "x_percent": {"type": "number", "description": "X号中心水平百分比 (0-100)"},
-                    "y_percent": {"type": "number", "description": "X号中心垂直百分比 (0-100)"},
-                    "size": {"type": "integer", "description": "裁剪正方形边长（像素）"},
-                    "screenshot_path": {"type": "string", "description": "截图路径（像素定位时用）"},
-                    "x": {"type": "integer", "description": "左上角 X 坐标"},
-                    "y": {"type": "integer", "description": "左上角 Y 坐标"},
-                    "width": {"type": "integer", "description": "裁剪宽度"},
-                    "height": {"type": "integer", "description": "裁剪高度"}
+                    "template_name": {"type": "string", "description": "模板名"},
+                    "x_percent": {"type": "number", "description": "X百分比"},
+                    "y_percent": {"type": "number", "description": "Y百分比"},
+                    "size": {"type": "integer", "description": "裁剪大小(px)"},
+                    "screenshot_path": {"type": "string", "description": "截图路径"},
+                    "x": {"type": "integer", "description": "左上X"},
+                    "y": {"type": "integer", "description": "左上Y"},
+                    "width": {"type": "integer", "description": "宽"},
+                    "height": {"type": "integer", "description": "高"}
                 },
                 "required": ["template_name"]
             }

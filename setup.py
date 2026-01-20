@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.6.3",  # 增强弹窗检测 - 添加浮动关闭按钮检测
+    version="2.6.4",  # Token 优化 - 减少约60% token消耗，启发式clickable判断
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",

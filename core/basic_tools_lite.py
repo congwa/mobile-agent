@@ -349,7 +349,7 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     screen_width, screen_height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 self.client.u2.screenshot(str(temp_path))
                 info = self.client.u2.info
@@ -400,12 +400,10 @@ class BasicMobileToolsLite:
                 
                 cropped_size = final_path.stat().st_size
                 
-                # 返回结果（保留原始字段名）
+                # 返回结果
                 return {
                     "success": True,
                     "screenshot_path": str(final_path),
-                    "screen_width": screen_width,
-                    "screen_height": screen_height,
                     "image_width": img.width,
                     "image_height": img.height,
                     "crop_offset_x": crop_offset_x,
@@ -462,16 +460,14 @@ class BasicMobileToolsLite:
                 compressed_size = final_path.stat().st_size
                 saved_percent = (1 - compressed_size / original_size) * 100
                 
-                # 返回结果（保留原始字段名）
+                # 返回结果
                 return {
                     "success": True,
                     "screenshot_path": str(final_path),
-                    "screen_width": screen_width,
-                    "screen_height": screen_height,
-                    "original_img_width": original_img_width,
-                    "original_img_height": original_img_height,
                     "image_width": image_width,
-                    "image_height": image_height
+                    "image_height": image_height,
+                    "original_img_width": original_img_width,
+                    "original_img_height": original_img_height
                 }
             
             # ========== 情况3：全屏不压缩截图 ==========
@@ -485,14 +481,10 @@ class BasicMobileToolsLite:
                 final_path = self.screenshot_dir / filename
                 temp_path.rename(final_path)
                 
-                # 返回结果（保留原始字段名）
+                # 返回结果（不压缩时尺寸相同）
                 return {
                     "success": True,
                     "screenshot_path": str(final_path),
-                    "screen_width": screen_width,
-                    "screen_height": screen_height,
-                    "original_img_width": img.width,
-                    "original_img_height": img.height,
                     "image_width": img.width,
                     "image_height": img.height
                 }
@@ -534,7 +526,7 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     screen_width, screen_height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 self.client.u2.screenshot(str(temp_path))
                 info = self.client.u2.info
@@ -648,26 +640,16 @@ class BasicMobileToolsLite:
             result = {
                 "success": True,
                 "screenshot_path": str(final_path),
-                "screen_width": screen_width,
-                "screen_height": screen_height,
                 "image_width": img_width,
                 "image_height": img_height,
-                "grid_size": grid_size,
-                "message": f"📸 网格截图已保存: {final_path}\n"
-                          f"📐 尺寸: {img_width}x{img_height}\n"
-                          f"📏 网格间距: {grid_size}px"
+                "grid_size": grid_size
             }
             
             if popup_info:
-                result["popup_detected"] = True
-                result["popup_bounds"] = popup_info["bounds"]
-                result["close_button_hints"] = close_positions
-                result["message"] += f"\n🎯 检测到弹窗: {popup_info['bounds']}"
-                result["message"] += f"\n💡 可能的关闭按钮位置（绿色圆圈标注）："
-                for pos in close_positions:
-                    result["message"] += f"\n   {pos['priority']}. {pos['name']}: ({pos['x']}, {pos['y']})"
-            else:
-                result["popup_detected"] = False
+                result["popup"] = popup_info["bounds"]
+                # 只返回前3个最可能的关闭按钮位置
+                if close_positions:
+                    result["close_hints"] = [(p['x'], p['y']) for p in close_positions[:3]]
             
             return result
             
@@ -704,7 +686,7 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     screen_width, screen_height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 self.client.u2.screenshot(str(temp_path))
                 info = self.client.u2.info
@@ -864,18 +846,15 @@ class BasicMobileToolsLite:
             img.save(str(final_path), "JPEG", quality=85)
             temp_path.unlink()
             
-            # 返回结果（保留原始字段名，确保兼容性）
+            # 返回结果（Token 优化：不返回 elements 列表，已存储在 self._som_elements）
             return {
                 "success": True,
                 "screenshot_path": str(final_path),
                 "screen_width": screen_width,
                 "screen_height": screen_height,
-                "image_width": img_width,
-                "image_height": img_height,
                 "element_count": len(som_elements),
-                "elements": som_elements,  # 完整列表，原始格式
                 "popup_detected": popup_bounds is not None,
-                "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]" if popup_bounds else None
+                "hint": "查看截图上的编号，用 click_by_som(编号) 点击"
             }
             
         except ImportError:
@@ -956,7 +935,6 @@ class BasicMobileToolsLite:
 
             return {
                 "success": True,
-                "message": f"✅ 已点击 [{index}] {target['desc']} → ({cx}, {cy})\n💡 建议：再次截图确认操作是否成功",
                 "clicked": {
                     "index": index,
                     "desc": target['desc'],
@@ -990,7 +968,7 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     width, height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 self.client.u2.screenshot(str(screenshot_path))
                 info = self.client.u2.info
@@ -1068,7 +1046,7 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     screen_width, screen_height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 info = self.client.u2.info
                 screen_width = info.get('displayWidth', 0)
@@ -1183,14 +1161,14 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     width, height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 info = self.client.u2.info
                 width = info.get('displayWidth', 0)
                 height = info.get('displayHeight', 0)
             
             if width == 0 or height == 0:
-                return {"success": False, "message": "❌ 无法获取屏幕尺寸"}
+                return {"success": False, "msg": "无法获取屏幕尺寸"}
             
             # 第2步：百分比转像素坐标
             # 公式：像素 = 屏幕尺寸 × (百分比 / 100)
@@ -1211,9 +1189,6 @@ class BasicMobileToolsLite:
             
             return {
                 "success": True,
-                "message": f"✅ 百分比点击成功: ({x_percent}%, {y_percent}%) → 像素({x}, {y})",
-                "screen_size": {"width": width, "height": height},
-                "percent": {"x": x_percent, "y": y_percent},
                 "pixel": {"x": x, "y": y}
             }
         except Exception as e:
@@ -1239,17 +1214,12 @@ class BasicMobileToolsLite:
                     if elem.exists:
                         elem.click()
                         time.sleep(0.3)
-                        # 使用标准记录格式
                         self._record_click('text', text, element_desc=text, locator_attr='text')
-                        return {"success": True, "message": f"✅ 点击成功: '{text}'"}
-                    # 控件树找不到，提示 AI 使用视觉识别（不自动截图，节省 token）
-                    return {
-                        "success": False,
-                        "fallback": "vision",
-                        "message": f"控件树未找到文本 '{text}'，请调用 mobile_screenshot_with_som 截图后用 click_by_som 点击"
-                    }
+                        return {"success": True}
+                    # 控件树找不到，提示用视觉识别
+                    return {"success": False, "fallback": "vision", "msg": f"未找到'{text}'，用截图点击"}
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 # 获取屏幕尺寸用于计算百分比
                 screen_width, screen_height = self.client.u2.window_size()
@@ -1270,17 +1240,15 @@ class BasicMobileToolsLite:
                         x_pct = round(cx / screen_width * 100, 1)
                         y_pct = round(cy / screen_height * 100, 1)
                     
-                    # 如果有位置参数，直接使用坐标点击（避免 u2 选择器匹配到错误的元素）
+                    # 如果有位置参数，直接使用坐标点击
                     if position and bounds:
                         x = (bounds[0] + bounds[2]) // 2
                         y = (bounds[1] + bounds[3]) // 2
                         self.client.u2.click(x, y)
                         time.sleep(0.3)
-                        position_info = f" ({position})" if position else ""
-                        # 虽然用坐标点击，但记录时仍使用文本定位（脚本更稳定）
                         self._record_click('text', attr_value, x_pct, y_pct, 
-                                          element_desc=f"{text}{position_info}", locator_attr=attr_type)
-                        return {"success": True, "message": f"✅ 点击成功(坐标定位): '{text}'{position_info} @ ({x},{y})"}
+                                          element_desc=f"{text}({position})", locator_attr=attr_type)
+                        return {"success": True}
                     
                     # 没有位置参数时，使用选择器定位
                     if attr_type == 'text':
@@ -1297,32 +1265,24 @@ class BasicMobileToolsLite:
                     if elem and elem.exists(timeout=1):
                         elem.click()
                         time.sleep(0.3)
-                        position_info = f" ({position})" if position else ""
-                        # 使用标准记录格式：文本定位
                         self._record_click('text', attr_value, x_pct, y_pct,
                                           element_desc=text, locator_attr=attr_type)
-                        return {"success": True, "message": f"✅ 点击成功({attr_type}): '{text}'{position_info}"}
+                        return {"success": True}
                     
-                    # 如果选择器失败，用坐标兜底
+                    # 选择器失败，用坐标兜底
                     if bounds:
                         x = (bounds[0] + bounds[2]) // 2
                         y = (bounds[1] + bounds[3]) // 2
                         self.client.u2.click(x, y)
                         time.sleep(0.3)
-                        position_info = f" ({position})" if position else ""
-                        # 选择器失败，用百分比作为兜底
                         self._record_click('percent', f"{x_pct}%,{y_pct}%", x_pct, y_pct,
-                                          element_desc=f"{text}{position_info}")
-                        return {"success": True, "message": f"✅ 点击成功(坐标兜底): '{text}'{position_info} @ ({x},{y})"}
+                                          element_desc=text)
+                        return {"success": True}
                 
-                # 控件树找不到，提示 AI 使用视觉识别（不自动截图，节省 token）
-                return {
-                    "success": False,
-                    "fallback": "vision",
-                    "message": f"控件树未找到文本 '{text}'，请调用 mobile_screenshot_with_som 截图后用 click_by_som 点击"
-                }
+                # 控件树找不到，提示用视觉识别
+                return {"success": False, "fallback": "vision", "msg": f"未找到'{text}'，用截图点击"}
         except Exception as e:
-            return {"success": False, "message": f"❌ 点击失败: {e}"}
+            return {"success": False, "msg": str(e)}
     
     def _find_element_in_tree(self, text: str, position: Optional[str] = None) -> Optional[Dict]:
         """在 XML 树中查找包含指定文本的元素，优先返回可点击的元素
@@ -1461,15 +1421,8 @@ class BasicMobileToolsLite:
             return None
     
     def click_by_id(self, resource_id: str, index: int = 0) -> Dict:
-        """通过 resource-id 点击（支持点击第 N 个元素）
-
-        Args:
-            resource_id: 元素的 resource-id
-            index: 第几个元素（从 0 开始），默认 0 表示第一个
-        """
+        """通过 resource-id 点击"""
         try:
-            index_desc = f"[{index}]" if index > 0 else ""
-
             if self._is_ios():
                 ios_client = self._get_ios_client()
                 if ios_client and hasattr(ios_client, 'wda'):
@@ -1477,46 +1430,31 @@ class BasicMobileToolsLite:
                     if not elem.exists:
                         elem = ios_client.wda(name=resource_id)
                     if elem.exists:
-                        # 获取所有匹配的元素
                         elements = elem.find_elements()
                         if index < len(elements):
                             elements[index].click()
                             time.sleep(0.3)
-                            # 使用标准记录格式
-                            self._record_click('id', resource_id, element_desc=f"{resource_id}{index_desc}")
-                            return {"success": True, "message": f"✅ 点击成功: {resource_id}{index_desc}"}
+                            self._record_click('id', resource_id, element_desc=resource_id)
+                            return {"success": True}
                         else:
-                            return {"success": False, "message": f"❌ 索引超出范围: 找到 {len(elements)} 个元素，但请求索引 {index}"}
-                    # 控件树找不到，提示 AI 使用视觉识别（不自动截图，节省 token）
-                    return {
-                        "success": False,
-                        "fallback": "vision",
-                        "message": f"控件树未找到 ID '{resource_id}'，请调用 mobile_screenshot_with_som 截图后用 click_by_som 点击"
-                    }
+                            return {"success": False, "msg": f"索引{index}超出范围(共{len(elements)}个)"}
+                    return {"success": False, "fallback": "vision", "msg": f"未找到ID'{resource_id}'"}
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 elem = self.client.u2(resourceId=resource_id)
                 if elem.exists(timeout=0.5):
-                    # 获取匹配元素数量
                     count = elem.count
                     if index < count:
                         elem[index].click()
                         time.sleep(0.3)
-                        # 使用标准记录格式
-                        self._record_click('id', resource_id, element_desc=f"{resource_id}{index_desc}")
-                        return {"success": True, "message": f"✅ 点击成功: {resource_id}{index_desc}" + (f" (共 {count} 个)" if count > 1 else "")}
+                        self._record_click('id', resource_id, element_desc=resource_id)
+                        return {"success": True}
                     else:
-                        return {"success": False, "message": f"❌ 索引超出范围: 找到 {count} 个元素，但请求索引 {index}"}
-                
-                # 控件树找不到，提示 AI 使用视觉识别（不自动截图，节省 token）
-                return {
-                    "success": False,
-                    "fallback": "vision",
-                    "message": f"控件树未找到 ID '{resource_id}'，请调用 mobile_screenshot_with_som 截图后用 click_by_som 点击"
-                }
+                        return {"success": False, "msg": f"索引{index}超出范围(共{count}个)"}
+                return {"success": False, "fallback": "vision", "msg": f"未找到ID'{resource_id}'"}
         except Exception as e:
-            return {"success": False, "message": f"❌ 点击失败: {e}"}
+            return {"success": False, "msg": str(e)}
     
     # ==================== 长按操作 ====================
     
@@ -1550,7 +1488,7 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     screen_width, screen_height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 info = self.client.u2.info
                 screen_width = info.get('displayWidth', 0)
@@ -1603,23 +1541,11 @@ class BasicMobileToolsLite:
             
             if converted:
                 if conversion_type == "crop_offset":
-                    return {
-                        "success": True,
-                        "message": f"✅ 长按成功: ({x}, {y}) 持续 {duration}s\n"
-                                  f"   🔍 局部截图坐标转换: ({original_x},{original_y}) + 偏移({crop_offset_x},{crop_offset_y}) → ({x},{y})"
-                    }
+                    return {"success": True}
                 else:
-                    return {
-                        "success": True,
-                        "message": f"✅ 长按成功: ({x}, {y}) 持续 {duration}s\n"
-                                  f"   📐 坐标已转换: ({original_x},{original_y}) → ({x},{y})\n"
-                                  f"   🖼️ 图片尺寸: {image_width}x{image_height} → 屏幕: {screen_width}x{screen_height}"
-                    }
+                    return {"success": True}
             else:
-                return {
-                    "success": True,
-                    "message": f"✅ 长按成功: ({x}, {y}) 持续 {duration}s [相对位置: {x_percent}%, {y_percent}%]"
-                }
+                return {"success": True}
         except Exception as e:
             return {"success": False, "message": f"❌ 长按失败: {e}"}
     
@@ -1648,14 +1574,14 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     width, height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 info = self.client.u2.info
                 width = info.get('displayWidth', 0)
                 height = info.get('displayHeight', 0)
             
             if width == 0 or height == 0:
-                return {"success": False, "message": "❌ 无法获取屏幕尺寸"}
+                return {"success": False, "msg": "无法获取屏幕尺寸"}
             
             # 第2步：百分比转像素坐标
             x = int(width * x_percent / 100)
@@ -1677,13 +1603,7 @@ class BasicMobileToolsLite:
             self._record_long_press('percent', f"{x_percent}%,{y_percent}%", duration,
                                    x_percent, y_percent, element_desc=f"百分比({x_percent}%,{y_percent}%)")
             
-            return {
-                "success": True,
-                "message": f"✅ 百分比长按成功: ({x_percent}%, {y_percent}%) → 像素({x}, {y}) 持续 {duration}s",
-                "screen_size": {"width": width, "height": height},
-                "percent": {"x": x_percent, "y": y_percent},
-                "pixel": {"x": x, "y": y},
-                "duration": duration
+            return {"success": True
             }
         except Exception as e:
             return {"success": False, "message": f"❌ 百分比长按失败: {e}"}
@@ -1713,8 +1633,8 @@ class BasicMobileToolsLite:
                             ios_client.wda.swipe(x, y, x, y, duration=duration)
                         time.sleep(0.3)
                         self._record_long_press('text', text, duration, element_desc=text, locator_attr='text')
-                        return {"success": True, "message": f"✅ 长按成功: '{text}' 持续 {duration}s"}
-                    return {"success": False, "message": f"❌ 文本不存在: {text}"}
+                        return {"success": True}
+                    return {"success": False, "msg": f"未找到'{text}'"}
             else:
                 # 获取屏幕尺寸用于计算百分比
                 screen_width, screen_height = self.client.u2.window_size()
@@ -1752,7 +1672,7 @@ class BasicMobileToolsLite:
                         time.sleep(0.3)
                         self._record_long_press('text', attr_value, duration, x_pct, y_pct,
                                                element_desc=text, locator_attr=attr_type)
-                        return {"success": True, "message": f"✅ 长按成功({attr_type}): '{text}' 持续 {duration}s"}
+                        return {"success": True}
                     
                     # 如果选择器失败，用坐标兜底
                     if bounds:
@@ -1762,9 +1682,9 @@ class BasicMobileToolsLite:
                         time.sleep(0.3)
                         self._record_long_press('percent', f"{x_pct}%,{y_pct}%", duration, x_pct, y_pct,
                                                element_desc=text)
-                        return {"success": True, "message": f"✅ 长按成功(坐标兜底): '{text}' @ ({x},{y}) 持续 {duration}s"}
+                        return {"success": True}
                 
-                return {"success": False, "message": f"❌ 文本不存在: {text}"}
+                return {"success": False, "msg": f"未找到'{text}'"}
         except Exception as e:
             return {"success": False, "message": f"❌ 长按失败: {e}"}
     
@@ -1792,8 +1712,8 @@ class BasicMobileToolsLite:
                             ios_client.wda.swipe(x, y, x, y, duration=duration)
                         time.sleep(0.3)
                         self._record_long_press('id', resource_id, duration, element_desc=resource_id)
-                        return {"success": True, "message": f"✅ 长按成功: {resource_id} 持续 {duration}s"}
-                    return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
+                        return {"success": True}
+                    return {"success": False, "msg": f"未找到'{resource_id}'"}
             else:
                 elem = self.client.u2(resourceId=resource_id)
                 if elem.exists(timeout=0.5):
@@ -1801,7 +1721,7 @@ class BasicMobileToolsLite:
                     time.sleep(0.3)
                     self._record_long_press('id', resource_id, duration, element_desc=resource_id)
                     return {"success": True, "message": f"✅ 长按成功: {resource_id} 持续 {duration}s"}
-                return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
+                return {"success": False, "msg": f"未找到'{resource_id}'"}
         except Exception as e:
             return {"success": False, "message": f"❌ 长按失败: {e}"}
     
@@ -2104,7 +2024,7 @@ class BasicMobileToolsLite:
                     size = ios_client.wda.window_size()
                     width, height = size[0], size[1]
                 else:
-                    return {"success": False, "message": "❌ iOS 客户端未初始化"}
+                    return {"success": False, "msg": "iOS未初始化"}
             else:
                 width, height = self.client.u2.window_size()
             
@@ -2200,22 +2120,22 @@ class BasicMobileToolsLite:
                             ios_client.wda.send_keys('\n')
                         elif ios_key == 'home':
                             ios_client.wda.home()
-                        return {"success": True, "message": f"✅ 按键成功: {key}"}
-                return {"success": False, "message": f"❌ iOS 不支持: {key}"}
+                        return {"success": True}
+                return {"success": False, "msg": f"iOS不支持{key}"}
             else:
                 keycode = key_map.get(key.lower())
                 if keycode:
                     self.client.u2.shell(f'input keyevent {keycode}')
                     self._record_key(key)
-                    return {"success": True, "message": f"✅ 按键成功: {key}"}
-                return {"success": False, "message": f"❌ 不支持的按键: {key}"}
+                    return {"success": True}
+                return {"success": False, "msg": f"不支持按键{key}"}
         except Exception as e:
             return {"success": False, "message": f"❌ 按键失败: {e}"}
     
     def wait(self, seconds: float) -> Dict:
         """等待指定时间"""
         time.sleep(seconds)
-        return {"success": True, "message": f"✅ 已等待 {seconds} 秒"}
+        return {"success": True}
     
     # ==================== 应用管理 ====================
     
@@ -2244,10 +2164,7 @@ class BasicMobileToolsLite:
             
             self._record_operation('launch_app', package_name=package_name)
             
-            return {
-                "success": True,
-                "message": f"✅ 已启动: {package_name}\n💡 建议等待 2-3 秒让页面加载\n📱 已设置应用状态监测"
-            }
+            return {"success": True}
         except Exception as e:
             return {"success": False, "message": f"❌ 启动失败: {e}"}
     
@@ -2260,9 +2177,9 @@ class BasicMobileToolsLite:
                     ios_client.wda.app_terminate(package_name)
             else:
                 self.client.u2.app_stop(package_name)
-            return {"success": True, "message": f"✅ 已终止: {package_name}"}
+            return {"success": True}
         except Exception as e:
-            return {"success": False, "message": f"❌ 终止失败: {e}"}
+            return {"success": False, "msg": str(e)}
     
     def list_apps(self, filter_keyword: str = "") -> Dict:
         """列出已安装应用"""
@@ -2374,6 +2291,26 @@ class BasicMobileToolsLite:
                     '_shadow', 'shadow_', '_divider', 'divider_', '_line', 'line_'
                 }
                 
+                # Token 优化：构建精简元素（只返回非空字段）
+                def build_compact_element(resource_id, text, content_desc, bounds, likely_click, class_name):
+                    """只返回有值的字段，节省 token"""
+                    item = {}
+                    if resource_id:
+                        # 精简 resource_id，只保留最后一段
+                        item['id'] = resource_id.split('/')[-1] if '/' in resource_id else resource_id
+                    if text:
+                        item['text'] = text
+                    if content_desc:
+                        item['desc'] = content_desc
+                    if bounds:
+                        item['bounds'] = bounds
+                    if likely_click:
+                        item['click'] = True  # 启发式判断可点击
+                    # class 精简：只保留关键类型
+                    if class_name in ('EditText', 'TextInput', 'Button', 'ImageButton', 'CheckBox', 'Switch'):
+                        item['type'] = class_name
+                    return item
+                
                 result = []
                 for elem in elements:
                     # 获取元素属性
@@ -2393,14 +2330,11 @@ class BasicMobileToolsLite:
                     
                     # 2. 检查是否是功能控件（直接保留）
                     if class_name in FUNCTIONAL_WIDGETS:
-                        result.append({
-                            'resource_id': resource_id,
-                            'text': text,
-                            'content_desc': content_desc,
-                            'bounds': bounds,
-                            'clickable': clickable,
-                            'class': class_name
-                        })
+                        # 使用启发式判断可点击性（替代不准确的 clickable 属性）
+                        likely_click = self._is_likely_clickable(class_name, resource_id, text, content_desc, clickable, bounds)
+                        item = build_compact_element(resource_id, text, content_desc, bounds, likely_click, class_name)
+                        if item:
+                            result.append(item)
                         continue
                     
                     # 3. 检查是否是容器控件
@@ -2413,14 +2347,10 @@ class BasicMobileToolsLite:
                                 # 所有属性都是默认值，过滤掉
                                 continue
                         # 有业务ID或其他有意义属性，保留
-                        result.append({
-                            'resource_id': resource_id,
-                            'text': text,
-                            'content_desc': content_desc,
-                            'bounds': bounds,
-                            'clickable': clickable,
-                            'class': class_name
-                        })
+                        likely_click = self._is_likely_clickable(class_name, resource_id, text, content_desc, clickable, bounds)
+                        item = build_compact_element(resource_id, text, content_desc, bounds, likely_click, class_name)
+                        if item:
+                            result.append(item)
                         continue
                     
                     # 4. 检查是否是装饰类控件
@@ -2437,14 +2367,10 @@ class BasicMobileToolsLite:
                         continue
                     
                     # 6. 其他情况：有意义的元素保留
-                    result.append({
-                        'resource_id': resource_id,
-                        'text': text,
-                        'content_desc': content_desc,
-                        'bounds': bounds,
-                        'clickable': clickable,
-                        'class': class_name
-                    })
+                    likely_click = self._is_likely_clickable(class_name, resource_id, text, content_desc, clickable, bounds)
+                    item = build_compact_element(resource_id, text, content_desc, bounds, likely_click, class_name)
+                    if item:
+                        result.append(item)
                 
                 # Token 优化：可选限制返回元素数量（默认不限制，确保准确度）
                 if TOKEN_OPTIMIZATION and MAX_ELEMENTS > 0 and len(result) > MAX_ELEMENTS:
@@ -2492,6 +2418,68 @@ class BasicMobileToolsLite:
         
         return True
     
+    def _is_likely_clickable(self, class_name: str, resource_id: str, text: str,
+                             content_desc: str, clickable: bool, bounds: str) -> bool:
+        """
+        启发式判断元素是否可能可点击
+        
+        Android 的 clickable 属性经常不准确，因为：
+        1. 点击事件可能设置在父容器上
+        2. 使用 onTouchListener 而不是 onClick
+        3. RecyclerView item 通过 ItemClickListener 处理
+        
+        此方法通过多种规则推断元素的真实可点击性
+        """
+        # 规则1：clickable=true 肯定可点击
+        if clickable:
+            return True
+        
+        # 规则2：特定类型的控件通常可点击
+        TYPICALLY_CLICKABLE = {
+            'Button', 'ImageButton', 'CheckBox', 'RadioButton', 'Switch',
+            'ToggleButton', 'FloatingActionButton', 'Chip', 'TabView',
+            'EditText', 'TextInput',  # 输入框可点击获取焦点
+        }
+        if class_name in TYPICALLY_CLICKABLE:
+            return True
+        
+        # 规则3：resource_id 包含可点击关键词
+        if resource_id:
+            id_lower = resource_id.lower()
+            CLICK_KEYWORDS = [
+                'btn', 'button', 'click', 'tap', 'submit', 'confirm',
+                'cancel', 'close', 'back', 'next', 'prev', 'more',
+                'action', 'link', 'menu', 'tab', 'item', 'cell',
+                'card', 'avatar', 'icon', 'entry', 'option', 'arrow'
+            ]
+            for kw in CLICK_KEYWORDS:
+                if kw in id_lower:
+                    return True
+        
+        # 规则4：content_desc 包含可点击暗示
+        if content_desc:
+            desc_lower = content_desc.lower()
+            CLICK_HINTS = ['点击', '按钮', '关闭', '返回', '更多', 'click', 'tap', 'button', 'close']
+            for hint in CLICK_HINTS:
+                if hint in desc_lower:
+                    return True
+        
+        # 规则5：有 resource_id 或 content_desc 的小图标可能可点击
+        # （纯 ImageView 不加判断，误判率太高）
+        if class_name in ('ImageView', 'Image') and (resource_id or content_desc) and bounds:
+            match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+            if match:
+                x1, y1, x2, y2 = map(int, match.groups())
+                w, h = x2 - x1, y2 - y1
+                # 小图标（20-100px）更可能是按钮
+                if 20 <= w <= 100 and 20 <= h <= 100:
+                    return True
+        
+        # 规则6：移除（TextView 误判率太高，只依赖上面的规则）
+        # 如果有 clickable=true 或 ID/desc 中有关键词，前面的规则已经覆盖
+        
+        return False
+    
     def find_close_button(self) -> Dict:
         """智能查找关闭按钮（不点击，只返回位置）
         
@@ -2505,7 +2493,7 @@ class BasicMobileToolsLite:
             import re
             
             if self._is_ios():
-                return {"success": False, "message": "iOS 暂不支持，请使用截图+坐标点击"}
+                return {"success": False, "msg": "iOS暂不支持"}
             
             # 获取屏幕尺寸
             screen_width = self.client.u2.info.get('displayWidth', 720)
@@ -2522,12 +2510,7 @@ class BasicMobileToolsLite:
             )
             
             if popup_bounds is None or popup_confidence < 0.5:
-                return {
-                    "success": True,
-                    "message": "ℹ️ 当前页面未检测到弹窗，无需查找关闭按钮",
-                    "popup_detected": False,
-                    "popup_confidence": popup_confidence
-                }
+                return {"success": True, "popup": False}
             
             # 关闭按钮特征
             close_texts = ['×', 'X', 'x', '关闭', '取消', 'close', 'Close', '跳过', '知道了', '我知道了']
@@ -2630,27 +2613,16 @@ class BasicMobileToolsLite:
             candidates.sort(key=lambda x: x['score'], reverse=True)
             best = candidates[0]
             
+            # Token 优化：只返回最必要的信息
             return {
                 "success": True,
-                "message": f"✅ 找到可能的关闭按钮",
-                "best_candidate": {
-                    "reason": best['reason'],
-                    "center": {"x": best['center_x'], "y": best['center_y']},
-                    "percent": {"x": best['x_percent'], "y": best['y_percent']},
-                    "bounds": best['bounds'],
-                    "size": best['size'],
-                    "score": best['score']
-                },
-                "click_command": f"mobile_click_by_percent({best['x_percent']}, {best['y_percent']})",
-                "other_candidates": [
-                    {"reason": c['reason'], "percent": f"({c['x_percent']}%, {c['y_percent']}%)", "score": c['score']}
-                    for c in candidates[1:4]
-                ] if len(candidates) > 1 else [],
-                "screen_size": {"width": screen_width, "height": screen_height}
+                "popup": True,
+                "close": {"x": best['x_percent'], "y": best['y_percent']},
+                "cmd": f"click_by_percent({best['x_percent']},{best['y_percent']})"
             }
             
         except Exception as e:
-            return {"success": False, "message": f"❌ 查找关闭按钮失败: {e}"}
+            return {"success": False, "msg": str(e)}
     
     def close_popup(self) -> Dict:
         """智能关闭弹窗（改进版）
@@ -2673,7 +2645,7 @@ class BasicMobileToolsLite:
             
             # 获取屏幕尺寸
             if self._is_ios():
-                return {"success": False, "message": "iOS 暂不支持，请使用截图+坐标点击"}
+                return {"success": False, "msg": "iOS暂不支持"}
             
             screen_width = self.client.u2.info.get('displayWidth', 720)
             screen_height = self.client.u2.info.get('displayHeight', 1280)
@@ -2704,14 +2676,7 @@ class BasicMobileToolsLite:
                 # 🔴 关键检查：如果没有检测到弹窗区域，直接返回"无弹窗"
                 # 避免误点击普通页面上的"关闭"、"取消"等按钮
                 if not popup_detected:
-                    return {
-                        "success": True,
-                        "message": "ℹ️ 当前页面未检测到弹窗，无需关闭",
-                        "popup_detected": False,
-                        "popup_confidence": popup_confidence,
-                        "action_required": None,
-                        "tip": "如果确实有弹窗但未被检测到，请使用 mobile_screenshot_with_som 截图后手动分析"
-                    }
+                    return {"success": True, "popup": False}
                 
                 # ===== 第二步：在弹窗范围内查找关闭按钮 =====
                 for idx, elem in enumerate(all_elements):
@@ -2850,22 +2815,9 @@ class BasicMobileToolsLite:
                 pass
             
             if not close_candidates:
-                # 控件树找不到，提示 AI 使用视觉识别（不自动截图，节省 token）
                 if popup_detected and popup_bounds:
-                    return {
-                        "success": False,
-                        "fallback": "vision",
-                        "message": "⚠️ 控件树未找到关闭按钮，请调用 mobile_screenshot_with_som 截图后用 click_by_som 点击",
-                        "popup_detected": True,
-                        "popup_bounds": f"[{popup_bounds[0]},{popup_bounds[1]}][{popup_bounds[2]},{popup_bounds[3]}]"
-                    }
-                
-                # 没有检测到弹窗
-                return {
-                    "success": True,
-                    "message": "ℹ️ 未检测到弹窗",
-                    "popup_detected": popup_detected
-                }
+                    return {"success": False, "fallback": "vision", "popup": True}
+                return {"success": True, "popup": False}
             
             # 按得分排序，取最可能的
             close_candidates.sort(key=lambda x: x['score'], reverse=True)
@@ -2883,46 +2835,22 @@ class BasicMobileToolsLite:
                 # 应用已跳转，说明弹窗去除失败，尝试返回目标应用
                 return_result = self._return_to_target_app()
             
-            # 使用标准记录格式
+            # 记录操作
             self._record_click('percent', f"{best['x_percent']}%,{best['y_percent']}%", 
                               best['x_percent'], best['y_percent'],
                               element_desc=f"关闭按钮({best['position']})")
             
-            # 构建返回消息
-            msg = f"✅ 已点击关闭按钮 ({best['position']}): ({best['center_x']}, {best['center_y']})"
+            # Token 优化：精简返回值
+            result = {"success": True, "clicked": True}
             if app_check['switched']:
-                msg += f"\n⚠️ 应用已跳转，说明弹窗去除失败"
+                result["switched"] = True
                 if return_result:
-                    if return_result['success']:
-                        msg += f"\n{return_result['message']}"
-                    else:
-                        msg += f"\n❌ 自动返回失败: {return_result['message']}"
+                    result["returned"] = return_result['success']
             
-            return {
-                "success": True,
-                "message": msg,
-                "clicked": {
-                    "position": best['position'],
-                    "match_type": best['match_type'],
-                    "coords": (best['center_x'], best['center_y']),
-                    "percent": (best['x_percent'], best['y_percent'])
-                },
-                "popup_detected": popup_detected,
-                "app_check": app_check,
-                "return_to_app": return_result,
-                "other_candidates": [
-                    {
-                        "position": c['position'], 
-                        "type": c['match_type'], 
-                        "percent": (c['x_percent'], c['y_percent'])
-                    }
-                    for c in close_candidates[1:3]  # 返回其他2个候选
-                ],
-                "tip": "💡 建议调用 mobile_screenshot_with_som 确认弹窗是否已关闭"
-            }
+            return result
             
         except Exception as e:
-            return {"success": False, "message": f"❌ 关闭弹窗失败: {e}"}
+            return {"success": False, "msg": str(e)}
     
     def _get_position_name(self, rel_x: float, rel_y: float) -> str:
         """根据相对坐标获取位置名称"""
