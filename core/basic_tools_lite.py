@@ -1242,7 +1242,14 @@ class BasicMobileToolsLite:
                         # 使用标准记录格式
                         self._record_click('text', text, element_desc=text, locator_attr='text')
                         return {"success": True, "message": f"✅ 点击成功: '{text}'"}
-                    return {"success": False, "message": f"❌ 文本不存在: {text}"}
+                    # 控件树找不到，降级到视觉识别
+                    som_result = self.take_screenshot_with_som()
+                    return {
+                        "success": False,
+                        "fallback": "vision",
+                        "message": f"控件树未找到文本 '{text}'，请查看截图用 click_by_som 点击",
+                        "som_screenshot": som_result
+                    }
             else:
                 # 获取屏幕尺寸用于计算百分比
                 screen_width, screen_height = self.client.u2.window_size()
@@ -1308,7 +1315,14 @@ class BasicMobileToolsLite:
                                           element_desc=f"{text}{position_info}")
                         return {"success": True, "message": f"✅ 点击成功(坐标兜底): '{text}'{position_info} @ ({x},{y})"}
                 
-                return {"success": False, "message": f"❌ 文本不存在: {text}"}
+                # 控件树找不到，降级到视觉识别 - 返回 SoM 截图供 AI 分析
+                som_result = self.take_screenshot_with_som()
+                return {
+                    "success": False,
+                    "fallback": "vision",
+                    "message": f"控件树未找到文本 '{text}'，请查看截图用 click_by_som 点击",
+                    "som_screenshot": som_result
+                }
         except Exception as e:
             return {"success": False, "message": f"❌ 点击失败: {e}"}
     
@@ -1475,7 +1489,14 @@ class BasicMobileToolsLite:
                             return {"success": True, "message": f"✅ 点击成功: {resource_id}{index_desc}"}
                         else:
                             return {"success": False, "message": f"❌ 索引超出范围: 找到 {len(elements)} 个元素，但请求索引 {index}"}
-                    return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
+                    # 控件树找不到，降级到视觉识别
+                    som_result = self.take_screenshot_with_som()
+                    return {
+                        "success": False,
+                        "fallback": "vision",
+                        "message": f"控件树未找到 ID '{resource_id}'，请查看截图用 click_by_som 点击",
+                        "som_screenshot": som_result
+                    }
             else:
                 elem = self.client.u2(resourceId=resource_id)
                 if elem.exists(timeout=0.5):
@@ -1489,7 +1510,15 @@ class BasicMobileToolsLite:
                         return {"success": True, "message": f"✅ 点击成功: {resource_id}{index_desc}" + (f" (共 {count} 个)" if count > 1 else "")}
                     else:
                         return {"success": False, "message": f"❌ 索引超出范围: 找到 {count} 个元素，但请求索引 {index}"}
-                return {"success": False, "message": f"❌ 元素不存在: {resource_id}"}
+                
+                # 控件树找不到，降级到视觉识别 - 返回 SoM 截图供 AI 分析
+                som_result = self.take_screenshot_with_som()
+                return {
+                    "success": False,
+                    "fallback": "vision",
+                    "message": f"控件树未找到 ID '{resource_id}'，请查看截图用 click_by_som 点击",
+                    "som_screenshot": som_result
+                }
         except Exception as e:
             return {"success": False, "message": f"❌ 点击失败: {e}"}
     
