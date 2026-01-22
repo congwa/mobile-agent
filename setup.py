@@ -98,6 +98,12 @@ setup(
             'Appium-Python-Client>=3.0.0',
             'selenium>=4.0.0',
         ],
+        # Windows 自动化支持（可选）- mobile_open_new_chat 功能需要
+        'windows': [
+            'pyautogui>=0.9.0',      # 模拟键盘操作
+            'pyperclip>=1.8.0',      # 剪贴板操作
+            'pygetwindow>=0.0.9',    # 窗口激活
+        ],
         # 完整安装（包含所有功能）
         'all': [
             'dashscope>=1.10.0',
@@ -108,6 +114,9 @@ setup(
             'pytest>=8.0.0',
             'pytest-asyncio>=0.21.0',
             'allure-pytest>=2.13.0',
+            'pyautogui>=0.9.0',
+            'pyperclip>=1.8.0',
+            'pygetwindow>=0.0.9',
         ],
     },
     entry_points={
