@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.7.0",  # 添加 Windows 批量执行依赖支持
+    version="2.7.3",  # 优化resource-id匹配和弹窗关闭功能
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
