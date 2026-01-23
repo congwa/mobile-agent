@@ -1,0 +1,165 @@
+# Mobile MCP 使用规则
+
+## 核心原则
+
+### 1. Token 优化（最重要）
+- 永远优先使用 `list_elements`，而不是截图确认页面
+- list_elements 消耗 ~500 tokens，截图消耗 ~2000 tokens
+- 正确流程：list_elements → 点击 → list_elements 确认
+
+### 2. 工具选择优先级
+点击元素时按优先级选择：
+1. click_by_text（最稳定，跨设备兼容）
+2. click_by_id（需要 resource-id）
+3. click_by_percent（百分比坐标，跨分辨率）
+4. click_at_coords（兜底，需要截图获取坐标）
+
+### 3. 验证策略
+使用 verify 参数减少额外调用：
+```
+click_by_text("登录", verify="首页")  # 自动验证"首页"出现
+```
+
+## 常见场景
+
+### 启动 App 并处理弹窗
+1. launch_app("com.example.app")
+2. wait(2)
+3. close_popup()  # 自动检测并关闭弹窗
+4. list_elements()  # 确认主页面
+
+### 登录流程
+1. list_elements()  # 获取输入框 ID
+2. input_text_by_id("username_input", "test123")
+3. input_text_by_id("password_input", "password")
+4. click_by_text("登录", verify="首页")
+
+### 滚动查找元素
+如果元素可能在屏幕外：
+1. list_elements 检查
+2. 找不到就 swipe("up")
+3. 重复直到找到或到底
+
+### 处理多个相同文案
+使用 position 参数：click_by_text("更多", position="top")
+支持：top/bottom/left/right/center
+
+### 录制测试脚本
+1. clear_operation_history()  # 开始录制
+2. 执行测试步骤
+3. generate_test_script("测试名", "包名", "文件名")
+
+## 弹窗处理
+
+| 场景 | 推荐工具 |
+|------|---------|
+| 通用弹窗 | close_popup |
+| 广告弹窗 | close_ad |
+| 模板 X 按钮 | template_close |
+
+## Toast 验证（仅 Android）
+必须先监听再操作：
+1. start_toast_watch()
+2. 触发操作
+3. assert_toast("成功")
+
+## 错误处理
+- 元素找不到：用 list_elements 确认完整文本 / swipe 滚动 / wait 等待加载 / close_popup 关闭弹窗
+- 设备断连：check_connection 检查
+- 点击无效：尝试点击父元素或使用坐标
+
+## 禁止事项
+- 不要用截图确认页面状态，用 list_elements
+- 不要频繁截图，截图消耗大量 token
+- 不要直接用坐标点击，优先用 text/id
+
+---
+
+## 飞书多维表格用例执行
+
+当用户说"执行飞书用例"或"继续执行飞书用例"时：
+
+
+### 核心流程
+1. **读取用例**: `bitable_v1_appTableRecord_search` 查询执行状态为空的用例
+2. **启动App**: 如果"重启App"=是，先 `terminate_app` 再 `launch_app`
+3. **每批5条**: 最多执行5条用例
+4. **实时回写**: 每条执行完立即 `bitable_v1_appTableRecord_update` 更新状态
+5. **自动分批**: 5条执行完调用 `mobile_open_new_chat` 打开新会话继续
+
+### 常用表格Token
+| 表格 | app_token | table_id |
+|-----|-----------|----------|
+| 测试用例 | L4x6bKk41advCQs94nMc2p7onTg | tbl1INs6U51p2qWQ |
+
+### 理解自然语言步骤
+测试步骤用自然语言描述，AI理解后调用对应工具：
+- "等待2秒" → wait(2)
+- "关闭弹窗" / "检测弹窗" → 先 list_elements 检测，有弹窗才 close_popup()
+- "点击登录按钮" → click_by_text("登录")
+- "在用户名框输入test" → input_text_by_id("username", "test")
+- "向上滑动" → swipe("up")
+- "按返回键" → press_key("back")
+- "开始监听Toast" → start_toast_watch()
+- "验证Toast包含xxx" → assert_toast("xxx")
+
+### 回写结果
+```python
+# 成功
+update_record(fields={"执行状态": "✅通过"})
+
+# 失败
+update_record(fields={"执行状态": "❌失败", "失败原因": "元素未找到"})
+```
+
+### 失败重试策略（最多5步，不循环）
+每个步骤**按顺序尝试以下方法**，全部失败就标记失败并继续下一个用例：
+
+```
+步骤: 点击"登录"按钮
+
+尝试1: click_by_text("登录")
+  ↓ 失败（元素未找到）
+
+尝试2: list_elements → 找相似文本（如"登 录"、"Login"）→ click_by_text
+  ↓ 失败（XML树中没有）
+
+尝试3: screenshot_with_som → 找到编号 → click_by_som(编号)
+  ↓ 失败（SoM也没识别到）
+
+尝试4: close_popup() → 关闭可能的弹窗遮挡 → 重试 click_by_text
+  ↓ 失败（不是弹窗问题）
+
+尝试5: take_screenshot → AI分析坐标 → click_at_coords(x, y)
+  ↓ 失败
+━━━ 放弃！标记❌失败，继续下一条用例 ━━━
+```
+
+**禁止行为**：
+- ❌ 不要无限重试同一个步骤
+- ❌ 不要反复滑动找元素超过3次
+- ❌ 不要重复截图超过2次
+- ❌ 5步全试过必须放弃
+
+**失败时回写飞书**：
+```python
+update_record(fields={
+    "执行状态": "❌失败", 
+    "失败原因": "步骤3：点击'登录'失败（已尝试XML/SoM/弹窗/坐标）"
+})
+```
+
+### 输出格式
+```
+执行飞书用例 (批次1, 1-10)
+
+━━━ 用例1: 切换账号 ━━━
+  ✅ 启动App
+  ✅ 关闭弹窗
+  ✅ 点击我的
+  📝 回写飞书: ✅通过
+✅ 用例1通过
+
+━━━ 批次1完成 (10/12) ━━━
+⏰ 5秒后打开新会话继续...
+```
