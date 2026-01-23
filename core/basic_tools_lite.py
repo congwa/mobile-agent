@@ -2071,13 +2071,16 @@ class BasicMobileToolsLite:
     
     # ==================== 导航操作 ====================
     
-    async def swipe(self, direction: str, y: Optional[int] = None, y_percent: Optional[float] = None) -> Dict:
+    async def swipe(self, direction: str, y: Optional[int] = None, y_percent: Optional[float] = None,
+                   distance: Optional[int] = None, distance_percent: Optional[float] = None) -> Dict:
         """滑动屏幕
         
         Args:
             direction: 滑动方向 (up/down/left/right)
             y: 左右滑动时指定的高度坐标（像素）
             y_percent: 左右滑动时指定的高度百分比 (0-100)
+            distance: 横向滑动时指定的滑动距离（像素），仅用于 left/right
+            distance_percent: 横向滑动时指定的滑动距离百分比 (0-100)，仅用于 left/right
         """
         try:
             if self._is_ios():
@@ -2104,20 +2107,53 @@ class BasicMobileToolsLite:
                     swipe_y = y
                 else:
                     swipe_y = center_y
+                
+                # 计算横向滑动距离
+                if distance_percent is not None:
+                    if not (0 <= distance_percent <= 100):
+                        return {"success": False, "message": f"❌ distance_percent 必须在 0-100 之间: {distance_percent}"}
+                    swipe_distance = int(width * distance_percent / 100)
+                elif distance is not None:
+                    if distance <= 0:
+                        return {"success": False, "message": f"❌ distance 必须大于 0: {distance}"}
+                    if distance > width:
+                        return {"success": False, "message": f"❌ distance 不能超过屏幕宽度 ({width}): {distance}"}
+                    swipe_distance = distance
+                else:
+                    # 默认滑动距离：屏幕宽度的 60%（从 0.8 到 0.2）
+                    swipe_distance = int(width * 0.6)
+                
+                # 计算起始和结束位置
+                if direction == 'left':
+                    # 从右向左滑动：起始点在右侧，结束点在左侧
+                    # 确保起始点不超出屏幕右边界
+                    start_x = min(center_x + swipe_distance // 2, width - 10)
+                    end_x = start_x - swipe_distance
+                    # 确保结束点不超出屏幕左边界
+                    if end_x < 10:
+                        end_x = 10
+                        start_x = min(end_x + swipe_distance, width - 10)
+                else:  # right
+                    # 从左向右滑动：起始点在左侧，结束点在右侧
+                    # 确保起始点不超出屏幕左边界
+                    start_x = max(center_x - swipe_distance // 2, 10)
+                    end_x = start_x + swipe_distance
+                    # 确保结束点不超出屏幕右边界
+                    if end_x > width - 10:
+                        end_x = width - 10
+                        start_x = max(end_x - swipe_distance, 10)
+                
+                x1, y1, x2, y2 = start_x, swipe_y, end_x, swipe_y
             else:
                 swipe_y = center_y
-            
-            swipe_map = {
-                'up': (center_x, int(height * 0.8), center_x, int(height * 0.2)),
-                'down': (center_x, int(height * 0.2), center_x, int(height * 0.8)),
-                'left': (int(width * 0.8), swipe_y, int(width * 0.2), swipe_y),
-                'right': (int(width * 0.2), swipe_y, int(width * 0.8), swipe_y),
-            }
-            
-            if direction not in swipe_map:
-                return {"success": False, "message": f"❌ 不支持的方向: {direction}"}
-            
-            x1, y1, x2, y2 = swipe_map[direction]
+                # 纵向滑动保持原有逻辑
+                swipe_map = {
+                    'up': (center_x, int(height * 0.8), center_x, int(height * 0.2)),
+                    'down': (center_x, int(height * 0.2), center_x, int(height * 0.8)),
+                }
+                if direction not in swipe_map:
+                    return {"success": False, "message": f"❌ 不支持的方向: {direction}"}
+                x1, y1, x2, y2 = swipe_map[direction]
             
             if self._is_ios():
                 ios_client.wda.swipe(x1, y1, x2, y2)
@@ -2138,10 +2174,21 @@ class BasicMobileToolsLite:
             # 构建返回消息
             msg = f"✅ 滑动成功: {direction}"
             if direction in ['left', 'right']:
+                msg_parts = []
                 if y_percent is not None:
-                    msg += f" (高度: {y_percent}% = {swipe_y}px)"
+                    msg_parts.append(f"高度: {y_percent}% = {swipe_y}px")
                 elif y is not None:
-                    msg += f" (高度: {y}px)"
+                    msg_parts.append(f"高度: {y}px")
+                
+                if distance_percent is not None:
+                    msg_parts.append(f"距离: {distance_percent}% = {swipe_distance}px")
+                elif distance is not None:
+                    msg_parts.append(f"距离: {distance}px")
+                else:
+                    msg_parts.append(f"距离: 默认 {swipe_distance}px")
+                
+                if msg_parts:
+                    msg += f" ({', '.join(msg_parts)})"
             
             # 如果检测到应用跳转，添加警告和返回结果
             if app_check['switched']:
@@ -2205,6 +2252,170 @@ class BasicMobileToolsLite:
         }
         self.operation_history.append(record)
         return {"success": True}
+    
+    async def drag_progress_bar(self, direction: str = "right", distance_percent: float = 30.0, 
+                                y_percent: Optional[float] = None, y: Optional[int] = None) -> Dict:
+        """智能拖动进度条
+        
+        自动检测进度条是否可见：
+        - 如果进度条已显示，直接拖动（无需先点击播放区域）
+        - 如果进度条未显示，先点击播放区域显示控制栏，再拖动
+        
+        Args:
+            direction: 拖动方向，'left'（倒退）或 'right'（前进），默认 'right'
+            distance_percent: 拖动距离百分比 (0-100)，默认 30%
+            y_percent: 进度条的垂直位置百分比 (0-100)，如果未指定则自动检测
+            y: 进度条的垂直位置坐标（像素），如果未指定则自动检测
+        """
+        try:
+            import xml.etree.ElementTree as ET
+            import re
+            
+            if self._is_ios():
+                return {"success": False, "message": "❌ iOS 暂不支持，请使用 mobile_swipe"}
+            
+            if direction not in ['left', 'right']:
+                return {"success": False, "message": f"❌ 拖动方向必须是 'left' 或 'right': {direction}"}
+            
+            screen_width, screen_height = self.client.u2.window_size()
+            
+            # 获取 XML 查找进度条
+            xml_string = self.client.u2.dump_hierarchy(compressed=False)
+            root = ET.fromstring(xml_string)
+            
+            progress_bar_found = False
+            progress_bar_y = None
+            progress_bar_y_percent = None
+            
+            # 查找进度条元素（SeekBar、ProgressBar）
+            for elem in root.iter():
+                class_name = elem.attrib.get('class', '')
+                resource_id = elem.attrib.get('resource-id', '')
+                bounds_str = elem.attrib.get('bounds', '')
+                
+                # 检查是否是进度条
+                is_progress_bar = (
+                    'SeekBar' in class_name or 
+                    'ProgressBar' in class_name or
+                    'progress' in resource_id.lower() or
+                    'seek' in resource_id.lower()
+                )
+                
+                if is_progress_bar and bounds_str:
+                    # 解析 bounds 获取进度条位置
+                    match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                    if match:
+                        x1, y1, x2, y2 = map(int, match.groups())
+                        center_y = (y1 + y2) // 2
+                        progress_bar_y = center_y
+                        progress_bar_y_percent = round(center_y / screen_height * 100, 1)
+                        progress_bar_found = True
+                        break
+            
+            # 如果未找到进度条，尝试点击播放区域显示控制栏
+            if not progress_bar_found:
+                # 点击屏幕中心显示控制栏
+                center_x, center_y = screen_width // 2, screen_height // 2
+                self.client.u2.click(center_x, center_y)
+                time.sleep(0.5)
+                
+                # 再次查找进度条
+                xml_string = self.client.u2.dump_hierarchy(compressed=False)
+                root = ET.fromstring(xml_string)
+                
+                for elem in root.iter():
+                    class_name = elem.attrib.get('class', '')
+                    resource_id = elem.attrib.get('resource-id', '')
+                    bounds_str = elem.attrib.get('bounds', '')
+                    
+                    is_progress_bar = (
+                        'SeekBar' in class_name or 
+                        'ProgressBar' in class_name or
+                        'progress' in resource_id.lower() or
+                        'seek' in resource_id.lower()
+                    )
+                    
+                    if is_progress_bar and bounds_str:
+                        match = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                        if match:
+                            x1, y1, x2, y2 = map(int, match.groups())
+                            center_y = (y1 + y2) // 2
+                            progress_bar_y = center_y
+                            progress_bar_y_percent = round(center_y / screen_height * 100, 1)
+                            progress_bar_found = True
+                            break
+            
+            # 确定使用的高度位置
+            if y_percent is not None:
+                swipe_y = int(screen_height * y_percent / 100)
+                used_y_percent = y_percent
+            elif y is not None:
+                swipe_y = y
+                used_y_percent = round(y / screen_height * 100, 1)
+            elif progress_bar_found:
+                swipe_y = progress_bar_y
+                used_y_percent = progress_bar_y_percent
+            else:
+                # 默认使用屏幕底部附近（进度条常见位置）
+                swipe_y = int(screen_height * 0.91)
+                used_y_percent = 91.0
+            
+            # 计算滑动距离
+            swipe_distance = int(screen_width * distance_percent / 100)
+            
+            # 计算起始和结束位置
+            center_x = screen_width // 2
+            if direction == 'left':
+                start_x = min(center_x + swipe_distance // 2, screen_width - 10)
+                end_x = start_x - swipe_distance
+                if end_x < 10:
+                    end_x = 10
+                    start_x = min(end_x + swipe_distance, screen_width - 10)
+            else:  # right
+                start_x = max(center_x - swipe_distance // 2, 10)
+                end_x = start_x + swipe_distance
+                if end_x > screen_width - 10:
+                    end_x = screen_width - 10
+                    start_x = max(end_x - swipe_distance, 10)
+            
+            # 执行拖动
+            self.client.u2.swipe(start_x, swipe_y, end_x, swipe_y, duration=0.5)
+            time.sleep(0.3)
+            
+            # 记录操作
+            self._record_swipe(direction)
+            
+            # 检查应用是否跳转
+            app_check = self._check_app_switched()
+            return_result = None
+            if app_check['switched']:
+                return_result = self._return_to_target_app()
+            
+            # 构建返回消息
+            msg = f"✅ 进度条拖动成功: {direction} (高度: {used_y_percent}%, 距离: {distance_percent}%)"
+            if not progress_bar_found:
+                msg += "\n💡 已自动点击播放区域显示控制栏"
+            else:
+                msg += "\n💡 进度条已显示，直接拖动"
+            
+            if app_check['switched']:
+                msg += f"\n{app_check['message']}"
+                if return_result and return_result.get('success'):
+                    msg += f"\n{return_result['message']}"
+            
+            return {
+                "success": True,
+                "message": msg,
+                "progress_bar_found": progress_bar_found,
+                "y_percent": used_y_percent,
+                "distance_percent": distance_percent,
+                "direction": direction,
+                "app_check": app_check,
+                "return_to_app": return_result
+            }
+            
+        except Exception as e:
+            return {"success": False, "message": f"❌ 拖动进度条失败: {e}"}
     
     # ==================== 应用管理 ====================
     
@@ -2803,10 +3014,8 @@ class BasicMobileToolsLite:
                 # 如果置信度不够高，记录但继续尝试查找关闭按钮
                 popup_detected = popup_bounds is not None and popup_confidence >= 0.6
                 
-                # 🔴 关键检查：如果没有检测到弹窗区域，直接返回"无弹窗"
-                # 避免误点击普通页面上的"关闭"、"取消"等按钮
-                if not popup_detected:
-                    return {"success": True, "popup": False}
+                # 【重要修复】如果没有检测到弹窗区域，只搜索有明确关闭特征的元素（文本、resource-id等）
+                # 避免误点击普通页面的右上角图标
                 
                 # ===== 第二步：在弹窗范围内查找关闭按钮 =====
                 for idx, elem in enumerate(all_elements):
@@ -2815,6 +3024,7 @@ class BasicMobileToolsLite:
                     bounds_str = elem.attrib.get('bounds', '')
                     class_name = elem.attrib.get('class', '')
                     clickable = elem.attrib.get('clickable', 'false') == 'true'
+                    resource_id = elem.attrib.get('resource-id', '')
                     
                     if not bounds_str:
                         continue
@@ -2831,7 +3041,7 @@ class BasicMobileToolsLite:
                     center_y = (y1 + y2) // 2
                     
                     # 如果检测到弹窗区域，检查元素是否在弹窗范围内或附近
-                    in_popup = True
+                    in_popup = False
                     popup_edge_bonus = 0
                     is_floating_close = False  # 是否是浮动关闭按钮（在弹窗外部上方）
                     if popup_bounds:
@@ -2872,6 +3082,20 @@ class BasicMobileToolsLite:
                         # 浮动关闭按钮（在弹窗上方外侧）给予高额加分
                         if is_floating_close:
                             popup_edge_bonus += 5.0  # 大幅加分
+                    elif not popup_detected:
+                        # 没有检测到弹窗时，只处理有明确关闭特征的元素
+                        # 检查是否有明确的关闭特征（文本、resource-id、content-desc）
+                        has_explicit_close_feature = (
+                            text in close_texts or
+                            any(kw in content_desc.lower() for kw in close_desc_keywords) or
+                            'close' in resource_id.lower() or
+                            'dismiss' in resource_id.lower() or
+                            'cancel' in resource_id.lower()
+                        )
+                        if not has_explicit_close_feature:
+                            continue  # 没有明确关闭特征，跳过
+                        # 有明确关闭特征时，允许处理
+                        in_popup = True
                     
                     if not in_popup:
                         continue
@@ -3062,6 +3286,15 @@ class BasicMobileToolsLite:
             resource_id = elem.attrib.get('resource-id', '')
             clickable = elem.attrib.get('clickable', 'false') == 'true'
             
+            # 检查是否是关闭按钮
+            is_close_button = (
+                'close' in resource_id.lower() or 
+                'dismiss' in resource_id.lower() or
+                'cancel' in resource_id.lower() or
+                '×' in elem.attrib.get('text', '') or
+                'X' in elem.attrib.get('text', '')
+            )
+            
             all_elements.append({
                 'idx': idx,
                 'bounds': (x1, y1, x2, y2),
@@ -3074,6 +3307,7 @@ class BasicMobileToolsLite:
                 'clickable': clickable,
                 'center_x': (x1 + x2) // 2,
                 'center_y': (y1 + y2) // 2,
+                'is_close_button': is_close_button,
             })
         
         if not all_elements:
@@ -3082,6 +3316,8 @@ class BasicMobileToolsLite:
         # 弹窗检测关键词
         dialog_class_keywords = ['Dialog', 'Popup', 'Alert', 'Modal', 'BottomSheet', 'PopupWindow']
         dialog_id_keywords = ['dialog', 'popup', 'alert', 'modal', 'bottom_sheet', 'overlay', 'mask']
+        # 广告弹窗关键词（全屏广告、激励视频等）
+        ad_popup_keywords = ['ad_close', 'ad_button', 'full_screen', 'interstitial', 'reward', 'close_icon', 'close_btn']
         
         popup_candidates = []
         has_mask_layer = False
@@ -3112,6 +3348,59 @@ class BasicMobileToolsLite:
             if y1 < 50:
                 continue
             
+            # 【非弹窗特征】如果元素包含底部导航栏（底部tab），则不是弹窗
+            # 底部导航栏通常在屏幕底部，高度约100-200像素
+            if y2 > screen_height * 0.85:
+                # 检查是否包含tab相关的resource-id或class
+                if 'tab' in resource_id.lower() or 'Tab' in class_name or 'navigation' in resource_id.lower():
+                    continue  # 跳过底部导航栏
+            
+            # 【非弹窗特征】如果元素包含顶部搜索栏，则不是弹窗
+            if y1 < screen_height * 0.15:
+                if 'search' in resource_id.lower() or 'Search' in class_name:
+                    continue  # 跳过顶部搜索栏
+            
+            # 先检查是否有强弹窗特征（用于后续判断）
+            has_strong_popup_feature = (
+                any(kw in class_name for kw in dialog_class_keywords) or
+                any(kw in resource_id.lower() for kw in dialog_id_keywords) or
+                any(kw in resource_id.lower() for kw in ad_popup_keywords)  # 广告弹窗关键词
+            )
+            
+            # 检查是否有子元素是关闭按钮（作为弹窗特征）
+            has_close_button_child = False
+            elem_bounds = elem['bounds']
+            for other_elem in all_elements:
+                if other_elem['idx'] == elem['idx']:
+                    continue
+                if other_elem['is_close_button']:
+                    # 检查关闭按钮是否在这个元素范围内
+                    ox1, oy1, ox2, oy2 = other_elem['bounds']
+                    ex1, ey1, ex2, ey2 = elem_bounds
+                    if ex1 <= ox1 and ey1 <= oy1 and ex2 >= ox2 and ey2 >= oy2:
+                        has_close_button_child = True
+                        break
+            
+            # 【非弹窗特征】如果元素包含明显的页面内容特征，则不是弹窗
+            # 检查是否包含视频播放器、内容列表等页面元素
+            page_content_keywords = ['video', 'player', 'recycler', 'list', 'scroll', 'viewpager', 'fragment']
+            if any(kw in resource_id.lower() or kw in class_name.lower() for kw in page_content_keywords):
+                # 如果面积很大且没有强弹窗特征，则不是弹窗
+                if area_ratio > 0.6 and not has_strong_popup_feature:
+                    continue
+            
+            # 【非弹窗特征】如果元素面积过大（接近全屏），即使居中也不应该是弹窗
+            # 真正的弹窗通常不会超过屏幕的60%
+            # 对于面积 > 0.6 的元素，如果没有强特征，直接跳过（避免误判首页内容区域）
+            if area_ratio > 0.6 and not has_strong_popup_feature:
+                continue  # 跳过大面积非弹窗元素（接近全屏的内容区域，如首页视频播放区域）
+            
+            # 对于面积 > 0.7 的元素，即使有强特征也要更严格
+            if area_ratio > 0.7:
+                # 需要非常强的特征才认为是弹窗
+                if not has_strong_popup_feature:
+                    continue
+            
             confidence = 0.0
             
             # 【强特征】class 名称包含弹窗关键词 (+0.5)
@@ -3122,19 +3411,46 @@ class BasicMobileToolsLite:
             if any(kw in resource_id.lower() for kw in dialog_id_keywords):
                 confidence += 0.4
             
+            # 【强特征】resource-id 包含广告弹窗关键词 (+0.4)
+            if any(kw in resource_id.lower() for kw in ad_popup_keywords):
+                confidence += 0.4
+            
+            # 【强特征】包含关闭按钮作为子元素 (+0.3)
+            if has_close_button_child:
+                confidence += 0.3
+            
             # 【中等特征】居中显示 (+0.2)
+            # 但如果没有强特征，降低权重
             center_x = elem['center_x']
             center_y = elem['center_y']
             is_centered_x = abs(center_x - screen_width / 2) < screen_width * 0.15
             is_centered_y = abs(center_y - screen_height / 2) < screen_height * 0.25
+            
+            has_strong_feature = (
+                any(kw in class_name for kw in dialog_class_keywords) or
+                any(kw in resource_id.lower() for kw in dialog_id_keywords) or
+                any(kw in resource_id.lower() for kw in ad_popup_keywords) or
+                has_close_button_child
+            )
+            
             if is_centered_x and is_centered_y:
-                confidence += 0.2
+                if has_strong_feature:
+                    confidence += 0.2
+                else:
+                    confidence += 0.1  # 没有强特征时降低权重
             elif is_centered_x:
-                confidence += 0.1
+                if has_strong_feature:
+                    confidence += 0.1
+                else:
+                    confidence += 0.05  # 没有强特征时降低权重
             
             # 【中等特征】非全屏但有一定大小 (+0.15)
+            # 但如果没有强特征，降低权重
             if 0.15 < area_ratio < 0.75:
-                confidence += 0.15
+                if has_strong_feature:
+                    confidence += 0.15
+                else:
+                    confidence += 0.08  # 没有强特征时降低权重
             
             # 【弱特征】XML 顺序靠后（在视图层级上层）(+0.1)
             if elem['idx'] > len(all_elements) * 0.5:
@@ -3161,8 +3477,22 @@ class BasicMobileToolsLite:
         popup_candidates.sort(key=lambda x: (x['confidence'], x['idx']), reverse=True)
         best = popup_candidates[0]
         
-        # 只有置信度 >= 0.6 才返回弹窗
-        if best['confidence'] >= 0.6:
+        # 更严格的阈值：只有置信度 >= 0.7 才返回弹窗
+        # 如果没有强特征（class或resource-id包含弹窗关键词），需要更高的置信度
+        has_strong_feature = (
+            any(kw in best['class'] for kw in dialog_class_keywords) or
+            any(kw in best['resource_id'].lower() for kw in dialog_id_keywords) or
+            any(kw in best['resource_id'].lower() for kw in ad_popup_keywords)
+        )
+        
+        if has_strong_feature:
+            # 有强特征时，阈值0.7
+            threshold = 0.7
+        else:
+            # 没有强特征时，阈值0.85（更严格）
+            threshold = 0.85
+        
+        if best['confidence'] >= threshold:
             return best['bounds'], best['confidence']
         
         return None, best['confidence']

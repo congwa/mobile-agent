@@ -494,15 +494,79 @@ class MobileMCPServer:
         # ==================== 导航操作 ====================
         tools.append(Tool(
             name="mobile_swipe",
-            description="👆 滑动。方向:up/down/left/right。",
+            description="👆 滑动屏幕。方向：up/down/left/right\n\n"
+                       "🎯 适用场景：\n"
+                       "- 滑动页面（列表、页面切换）\n"
+                       "- 拖动进度条/滑块（SeekBar、ProgressBar）\n"
+                       "- 滑动选择器（Picker、Slider）\n\n"
+                       "💡 左右滑动时，可指定高度坐标或百分比：\n"
+                       "- y: 指定高度坐标（像素）\n"
+                       "- y_percent: 指定高度百分比 (0-100)\n"
+                       "- 两者都未指定时，使用屏幕中心高度\n"
+                       "- 📌 拖动进度条时，使用进度条的 Y 位置（百分比或像素）\n\n"
+                       "💡 横向滑动（left/right）时，可指定滑动距离：\n"
+                       "- distance: 滑动距离（像素）\n"
+                       "- distance_percent: 滑动距离百分比 (0-100)\n"
+                       "- 两者都未指定时，使用默认距离（屏幕宽度的 60%）\n"
+                       "- 📌 拖动进度条时，distance_percent 控制拖动幅度\n\n"
+                       "💡 拖动进度条示例：\n"
+                       "- 倒退：direction='left', y_percent=91（进度条位置）, distance_percent=30\n"
+                       "- 前进：direction='right', y_percent=91, distance_percent=30\n\n"
+                       "⚠️ **推荐使用 mobile_drag_progress_bar 拖动进度条**（自动检测进度条位置，无需手动指定）",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "direction": {"type": "string", "enum": ["up", "down", "left", "right"], "description": "方向"},
-                    "y": {"type": "integer", "description": "左右滑动高度(px)"},
-                    "y_percent": {"type": "number", "description": "左右滑动高度(%)"}
+                    "y": {"type": "integer", "description": "左右滑动时指定的高度坐标（像素）"},
+                    "y_percent": {"type": "number", "description": "左右滑动时指定的高度百分比 (0-100)"},
+                    "distance": {"type": "integer", "description": "横向滑动时指定的滑动距离（像素），仅用于 left/right"},
+                    "distance_percent": {"type": "number", "description": "横向滑动时指定的滑动距离百分比 (0-100)，仅用于 left/right"}
                 },
                 "required": ["direction"]
+            }
+        ))
+        
+        tools.append(Tool(
+            name="mobile_drag_progress_bar",
+            description="🎯 智能拖动进度条（⭐⭐ 推荐用于拖动视频/音频进度条）\n\n"
+                       "✅ **自动检测进度条是否可见**：\n"
+                       "- 如果进度条已显示，直接拖动（无需先点击播放区域）\n"
+                       "- 如果进度条未显示，自动点击播放区域显示控制栏，再拖动\n\n"
+                       "🎯 优势：\n"
+                       "- 自动检测进度条位置，无需手动指定 y_percent\n"
+                       "- 智能判断是否需要显示控制栏\n"
+                       "- 使用 swipe 拖动，更稳定可靠\n\n"
+                       "💡 参数说明：\n"
+                       "- direction: 'left'（倒退）或 'right'（前进），默认 'right'\n"
+                       "- distance_percent: 拖动距离百分比 (0-100)，默认 30%\n"
+                       "- y_percent: 进度条位置（可选，未指定则自动检测）\n"
+                       "- y: 进度条位置坐标（可选，未指定则自动检测）\n\n"
+                       "📋 使用示例：\n"
+                       "- 前进30%：mobile_drag_progress_bar(direction='right', distance_percent=30)\n"
+                       "- 倒退30%：mobile_drag_progress_bar(direction='left', distance_percent=30)\n"
+                       "- 前进到指定位置：先点击进度条位置，或使用 mobile_swipe",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "description": "拖动方向：'left'（倒退）或 'right'（前进），默认 'right'"
+                    },
+                    "distance_percent": {
+                        "type": "number",
+                        "description": "拖动距离百分比 (0-100)，默认 30%"
+                    },
+                    "y_percent": {
+                        "type": "number",
+                        "description": "进度条的垂直位置百分比 (0-100)，可选，未指定则自动检测"
+                    },
+                    "y": {
+                        "type": "integer",
+                        "description": "进度条的垂直位置坐标（像素），可选，未指定则自动检测"
+                    }
+                },
+                "required": []
             }
         ))
         
@@ -924,7 +988,18 @@ class MobileMCPServer:
                 result = await self.tools.swipe(
                     arguments["direction"],
                     y=arguments.get("y"),
-                    y_percent=arguments.get("y_percent")
+                    y_percent=arguments.get("y_percent"),
+                    distance=arguments.get("distance"),
+                    distance_percent=arguments.get("distance_percent")
+                )
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_drag_progress_bar":
+                result = await self.tools.drag_progress_bar(
+                    direction=arguments.get("direction", "right"),
+                    distance_percent=arguments.get("distance_percent", 30.0),
+                    y_percent=arguments.get("y_percent"),
+                    y=arguments.get("y")
                 )
                 return [TextContent(type="text", text=self.format_response(result))]
             
