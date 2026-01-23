@@ -38,6 +38,9 @@ ENV/
 *.swo
 *~
 
+# 个人MCP配置目录（包含本地路径等敏感信息）
+mobile-mcp/
+
 # 测试结果和截图（用户本地生成的文件）
 screenshots/*.png
 screenshots/*.jpg
