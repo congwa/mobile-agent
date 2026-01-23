@@ -685,6 +685,8 @@ class MobileMCPServer:
 - 如果没有弹窗 → 直接返回"无弹窗"，不执行任何操作
 - 如果有弹窗 → 自动查找并点击关闭按钮
 
+💡 【优化】如果已通过list_elements识别到弹窗，可传入popup_detected=true跳过重复检测
+
 ✅ 适用场景：
 - 启动应用后检测并关闭可能出现的弹窗
 - 页面跳转后检测并关闭弹窗
@@ -700,7 +702,21 @@ class MobileMCPServer:
         tools.append(Tool(
             name="mobile_close_popup",
             description=desc_close_popup,
-            inputSchema={"type": "object", "properties": {}, "required": []}
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "popup_detected": {
+                        "type": "boolean",
+                        "description": "可选，如果已通过list_elements识别到弹窗，传入true可跳过重复检测"
+                    },
+                    "popup_bounds": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "可选，弹窗边界[x1, y1, x2, y2]，如果已识别到弹窗区域可传入"
+                    }
+                },
+                "required": []
+            }
         ))
         
         tools.append(Tool(
@@ -1043,7 +1059,17 @@ class MobileMCPServer:
                 return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_close_popup":
-                result = self.tools.close_popup()
+                popup_detected = arguments.get("popup_detected")
+                popup_bounds = arguments.get("popup_bounds")
+                # 如果传入了popup_bounds，转换为tuple
+                if popup_bounds and isinstance(popup_bounds, list) and len(popup_bounds) == 4:
+                    popup_bounds = tuple(popup_bounds)
+                elif popup_bounds:
+                    popup_bounds = None  # 格式不正确，忽略
+                result = self.tools.close_popup(
+                    popup_detected=popup_detected,
+                    popup_bounds=popup_bounds
+                )
                 return [TextContent(type="text", text=self.format_response(result))]
             
             elif name == "mobile_assert_text":

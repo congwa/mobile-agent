@@ -158,6 +158,33 @@ class BasicMobileToolsLite:
                 return info.get('package')
         except Exception:
             return None
+
+    def _normalize_resource_id(self, resource_id: str) -> str:
+        """标准化 resource-id，支持前端只传简写 id 时自动补全包名
+
+        约定：
+        - Android:
+            - 如果传入的是完整 id（包含 ':' 或 '/'），直接返回
+            - 如果是简写（如 'qylt_search_input_layout'），自动补全为
+              '{package}:id/{resource_id}'，package 优先使用 target_package，
+              否则使用当前前台应用包名
+        - iOS: 直接原样返回
+        """
+        # iOS 不做处理，保持与 WDA 一致
+        if self._is_ios():
+            return resource_id
+
+        # 已经是完整 id 或者包含路径信息时，不再修改
+        if ":" in resource_id or "/" in resource_id:
+            return resource_id
+
+        # 尝试获取包名：优先使用目标应用包名，其次当前前台应用
+        package = getattr(self, "target_package", None) or self._get_current_package()
+        if not package:
+            # 没有包名信息时，回退为原值，避免误拼接错误包名
+            return resource_id
+
+        return f"{package}:id/{resource_id}"
     
     def _check_app_switched(self) -> Dict:
         """检查是否已跳出目标应用
@@ -1504,17 +1531,23 @@ class BasicMobileToolsLite:
                 else:
                     return {"success": False, "msg": "iOS未初始化"}
             else:
-                elem = self.client.u2(resourceId=resource_id)
+                normalized_id = self._normalize_resource_id(resource_id)
+                elem = self.client.u2(resourceId=normalized_id)
                 if elem.exists(timeout=0.5):
                     count = elem.count
                     if index < count:
                         elem[index].click()
                         time.sleep(0.3)
-                        self._record_click('id', resource_id, element_desc=resource_id)
+                        # 记录时同时保留原始入参和实际使用的 id 信息
+                        self._record_click('id', normalized_id, element_desc=resource_id)
                         return {"success": True}
                     else:
                         return {"success": False, "msg": f"索引{index}超出范围(共{count}个)"}
-                return {"success": False, "fallback": "vision", "msg": f"未找到ID'{resource_id}'"}
+                return {
+                    "success": False,
+                    "fallback": "vision",
+                    "msg": f"未找到ID'{resource_id}' (实际匹配: '{normalized_id}')"
+                }
         except Exception as e:
             return {"success": False, "msg": str(e)}
     
@@ -1777,13 +1810,20 @@ class BasicMobileToolsLite:
                         return {"success": True}
                     return {"success": False, "msg": f"未找到'{resource_id}'"}
             else:
-                elem = self.client.u2(resourceId=resource_id)
+                normalized_id = self._normalize_resource_id(resource_id)
+                elem = self.client.u2(resourceId=normalized_id)
                 if elem.exists(timeout=0.5):
                     elem.long_click(duration=duration)
                     time.sleep(0.3)
-                    self._record_long_press('id', resource_id, duration, element_desc=resource_id)
-                    return {"success": True, "message": f"✅ 长按成功: {resource_id} 持续 {duration}s"}
-                return {"success": False, "msg": f"未找到'{resource_id}'"}
+                    self._record_long_press('id', normalized_id, duration, element_desc=resource_id)
+                    return {
+                        "success": True,
+                        "message": f"✅ 长按成功: {resource_id} (实际匹配: {normalized_id}) 持续 {duration}s"
+                    }
+                return {
+                    "success": False,
+                    "msg": f"未找到'{resource_id}' (实际匹配: '{normalized_id}')"
+                }
         except Exception as e:
             return {"success": False, "message": f"❌ 长按失败: {e}"}
     
@@ -1833,7 +1873,8 @@ class BasicMobileToolsLite:
                         }
                     return {"success": False, "message": f"❌ 输入框不存在: {resource_id}"}
             else:
-                elements = self.client.u2(resourceId=resource_id)
+                normalized_id = self._normalize_resource_id(resource_id)
+                elements = self.client.u2(resourceId=normalized_id)
                 
                 # 检查是否存在
                 if elements.exists(timeout=0.5):
@@ -1843,7 +1884,7 @@ class BasicMobileToolsLite:
                     if count == 1:
                         elements.set_text(text)
                         time.sleep(0.3)
-                        self._record_input(text, 'id', resource_id)
+                        self._record_input(text, 'id', normalized_id)
                         
                         # 🎯 关键步骤：检查应用是否跳转，如果跳转则自动返回目标应用
                         app_check = self._check_app_switched()
@@ -1851,7 +1892,7 @@ class BasicMobileToolsLite:
                         if app_check['switched']:
                             return_result = self._return_to_target_app()
                         
-                        msg = f"✅ 输入成功: '{text}'"
+                        msg = f"✅ 输入成功: '{text}' (id: {resource_id}, 实际匹配: {normalized_id})"
                         if app_check['switched']:
                             msg += f"\n{app_check['message']}"
                             if return_result:
@@ -2580,6 +2621,26 @@ class BasicMobileToolsLite:
                     'carrier', 'operator', 'sim_', 'mobile_signal'
                 }
                 
+                # 系统控件关键词（厂商系统UI元素，对测试没有意义，直接过滤）
+                SYSTEM_WIDGET_KEYWORDS = {
+                    'system_icon', 'systemicon', 'system_image', 'systemimage',
+                    'vivo_', 'vivo_superx', 'superx', 'super_x',
+                    'miui_', 'miui_system', 'huawei_', 'emui_',
+                    'oppo_', 'coloros_', 'oneplus_', 'realme_',
+                    'samsung_', 'oneui_', 'com.android.systemui',
+                    'system_ui', 'systemui', 'navigation_bar', 'navigationbar'
+                }
+                
+                # 系统弹窗交互文本（如果元素包含这些文本，即使 resource_id 匹配系统控件，也不过滤）
+                # 这些是系统弹窗（权限请求、系统对话框等）的常见按钮文本
+                SYSTEM_DIALOG_INTERACTIVE_TEXTS = {
+                    '允许', '拒绝', '确定', '取消', '同意', '不同意',
+                    '允许访问', '拒绝访问', '始终允许', '仅在使用时允许',
+                    '确定', '取消', '是', '否', '好', '知道了',
+                    'Allow', 'Deny', 'OK', 'Cancel', 'Yes', 'No',
+                    'Accept', 'Reject', 'Grant', 'Deny'
+                }
+                
                 # Token 优化：构建精简元素（只返回非空字段）
                 def build_compact_element(resource_id, text, content_desc, bounds, likely_click, class_name):
                     """只返回有值的字段，节省 token"""
@@ -2622,6 +2683,41 @@ class BasicMobileToolsLite:
                         resource_id_lower = resource_id.lower()
                         if any(keyword in resource_id_lower for keyword in STATUS_BAR_KEYWORDS):
                             continue
+                    
+                    # 1.6 过滤系统控件（厂商系统UI元素，对测试没有意义）
+                    # 例外：如果元素有明确的交互文本（系统弹窗按钮），不过滤
+                    if resource_id:
+                        resource_id_lower = resource_id.lower()
+                        
+                        # 检查是否是系统弹窗的交互按钮（有明确的交互文本）
+                        is_system_dialog_button = (
+                            text in SYSTEM_DIALOG_INTERACTIVE_TEXTS or
+                            content_desc in SYSTEM_DIALOG_INTERACTIVE_TEXTS
+                        )
+                        
+                        # 特殊处理：android:id/ 开头的元素
+                        if 'android:id/' in resource_id_lower:
+                            # android:id/button1, android:id/button2 等是系统弹窗按钮，应该保留
+                            # 只过滤特定的系统UI容器元素
+                            android_system_ids_to_filter = [
+                                'android:id/statusbarbackground',
+                                'android:id/navigationbarbackground'
+                            ]
+                            # 如果是系统弹窗按钮（有交互文本）或者是按钮类ID，保留
+                            if (is_system_dialog_button or 
+                                'button' in resource_id_lower or
+                                resource_id_lower not in [id.lower() for id in android_system_ids_to_filter]):
+                                # 保留，不过滤
+                                pass
+                            else:
+                                # 过滤系统UI容器
+                                continue
+                        else:
+                            # 非 android:id/ 开头的元素，检查是否匹配系统控件关键词
+                            # 如果是系统弹窗按钮（有交互文本），不过滤
+                            if not is_system_dialog_button:
+                                if any(keyword in resource_id_lower for keyword in SYSTEM_WIDGET_KEYWORDS):
+                                    continue
                     
                     # 2. 检查是否是功能控件（直接保留）
                     if class_name in FUNCTIONAL_WIDGETS:
@@ -2965,7 +3061,7 @@ class BasicMobileToolsLite:
         except Exception as e:
             return {"success": False, "msg": str(e)}
     
-    def close_popup(self) -> Dict:
+    def close_popup(self, popup_detected: bool = None, popup_bounds: tuple = None) -> Dict:
         """智能关闭弹窗（改进版）
         
         核心改进：先检测弹窗区域，再在弹窗范围内查找关闭按钮
@@ -2979,6 +3075,10 @@ class BasicMobileToolsLite:
         适配策略：
         - X 按钮可能在任意位置（上下左右都支持）
         - 使用百分比坐标记录，跨分辨率兼容
+        
+        Args:
+            popup_detected: 可选，AI已识别到弹窗时为True，跳过弹窗检测
+            popup_bounds: 可选，弹窗边界 (x1, y1, x2, y2)，如果AI已识别到弹窗区域可传入
         """
         try:
             import re
@@ -2999,20 +3099,37 @@ class BasicMobileToolsLite:
             close_desc_keywords = ['关闭', 'close', 'dismiss', 'cancel', '跳过']
             
             close_candidates = []
-            popup_bounds = None  # 弹窗区域
+            all_clickable_elements = []  # 所有可点击元素（用于兜底策略）
+            popup_confidence = 0.0
             
             # 解析 XML
             try:
                 root = ET.fromstring(xml_string)
                 all_elements = list(root.iter())
                 
-                # ===== 第一步：使用严格的置信度检测弹窗区域 =====
-                popup_bounds, popup_confidence = self._detect_popup_with_confidence(
-                    root, screen_width, screen_height
-                )
-                
-                # 如果置信度不够高，记录但继续尝试查找关闭按钮
-                popup_detected = popup_bounds is not None and popup_confidence >= 0.6
+                # ===== 第一步：检测弹窗区域（如果AI未传入完整弹窗信息）=====
+                if popup_bounds is None:
+                    # 无论popup_detected是否传入，都需要检测bounds来定位弹窗区域
+                    detected_bounds, detected_confidence = self._detect_popup_with_confidence(
+                        root, screen_width, screen_height
+                    )
+                    popup_bounds = detected_bounds
+                    popup_confidence = detected_confidence
+                    
+                    # 如果AI未传入popup_detected，根据检测结果判断
+                    if popup_detected is None:
+                        popup_detected = popup_bounds is not None and popup_confidence >= 0.6
+                    # 如果AI传入了popup_detected=True，但检测不到bounds，仍然使用AI的判断
+                    elif popup_detected and popup_bounds is None:
+                        # AI说有问题但检测不到，可能是检测算法不够准确，信任AI的判断
+                        popup_detected = True
+                        popup_confidence = 0.7  # 降低置信度，因为检测不到bounds
+                else:
+                    # AI已传入popup_bounds，直接使用
+                    if popup_detected is None:
+                        # 有bounds就认为有弹窗
+                        popup_detected = True
+                    popup_confidence = 0.8  # AI识别到的弹窗，置信度较高
                 
                 # 【重要修复】如果没有检测到弹窗区域，只搜索有明确关闭特征的元素（文本、resource-id等）
                 # 避免误点击普通页面的右上角图标
@@ -3039,6 +3156,20 @@ class BasicMobileToolsLite:
                     height = y2 - y1
                     center_x = (x1 + x2) // 2
                     center_y = (y1 + y2) // 2
+                    
+                    # 收集所有可点击元素（用于兜底策略：当只有一个可点击元素时点击它）
+                    if clickable:
+                        all_clickable_elements.append({
+                            'bounds': bounds_str,
+                            'center_x': center_x,
+                            'center_y': center_y,
+                            'width': width,
+                            'height': height,
+                            'text': text,
+                            'content_desc': content_desc,
+                            'resource_id': resource_id,
+                            'class_name': class_name
+                        })
                     
                     # 如果检测到弹窗区域，检查元素是否在弹窗范围内或附近
                     in_popup = False
@@ -3169,6 +3300,33 @@ class BasicMobileToolsLite:
                 pass
             
             if not close_candidates:
+                # 兜底策略：如果检测到弹窗但未找到关闭按钮，且页面元素很少（只有1个可点击元素），直接点击它
+                if popup_detected and popup_bounds and len(all_clickable_elements) == 1:
+                    single_element = all_clickable_elements[0]
+                    self.client.u2.click(single_element['center_x'], single_element['center_y'])
+                    time.sleep(0.5)
+                    
+                    # 检查应用是否跳转
+                    app_check = self._check_app_switched()
+                    return_result = None
+                    if app_check['switched']:
+                        return_result = self._return_to_target_app()
+                    
+                    # 记录操作
+                    rel_x = single_element['center_x'] / screen_width
+                    rel_y = single_element['center_y'] / screen_height
+                    self._record_click('percent', f"{round(rel_x * 100, 1)}%,{round(rel_y * 100, 1)}%", 
+                                      round(rel_x * 100, 1), round(rel_y * 100, 1),
+                                      element_desc="唯一可点击元素(弹窗兜底)")
+                    
+                    result = {"success": True, "clicked": True, "method": "single_clickable_fallback"}
+                    if app_check['switched']:
+                        result["switched"] = True
+                        if return_result:
+                            result["returned"] = return_result['success']
+                    return result
+                
+                # 如果没有找到关闭按钮，且不满足兜底条件，返回fallback
                 if popup_detected and popup_bounds:
                     return {"success": False, "fallback": "vision", "popup": True}
                 return {"success": True, "popup": False}
