@@ -1313,13 +1313,13 @@ class BasicMobileToolsLite:
                         page_texts = self._get_page_texts(10)
                         return {"success": True, "page_texts": page_texts}
                     
-                    # 选择器失败，用坐标兜底
+                    # 选择器失败，用控件中心坐标点兜底
                     if bounds:
                         x = (bounds[0] + bounds[2]) // 2
                         y = (bounds[1] + bounds[3]) // 2
                         self.client.u2.click(x, y)
                         time.sleep(0.3)
-                        self._record_click('percent', f"{x_pct}%,{y_pct}%", x_pct, y_pct,
+                        self._record_click('coords', f"{x},{y}", x_pct, y_pct,
                                           element_desc=text)
                         # 验证逻辑
                         if verify:
@@ -1373,12 +1373,14 @@ class BasicMobileToolsLite:
         except Exception as e:
             return {"success": True, "verified": False, "hint": f"验证异常: {e}"}
     
-    def _find_element_in_tree(self, text: str, position: Optional[str] = None) -> Optional[Dict]:
-        """在 XML 树中查找包含指定文本的元素，优先返回可点击的元素
+    def _find_element_in_tree(self, text: str, position: Optional[str] = None, exact_match: bool = True) -> Optional[Dict]:
+        """在 XML 树中查找指定文本的元素，优先返回可点击的元素
         
         Args:
             text: 要查找的文本
             position: 位置信息，用于在有多个相同文案时筛选
+            exact_match: 是否精确匹配。True=优先精确匹配（用于定位元素如点击），
+                        False=只进行包含匹配（用于验证元素）
         """
         try:
             xml = self.client.u2.dump_hierarchy(compressed=False)
@@ -1410,26 +1412,40 @@ class BasicMobileToolsLite:
                 attr_type = None
                 attr_value = None
                 
-                # 精确匹配 text
-                if elem_text == text:
-                    is_match = True
-                    attr_type = 'text'
-                    attr_value = text
-                # 精确匹配 content-desc
-                elif elem_desc == text:
-                    is_match = True
-                    attr_type = 'description'
-                    attr_value = text
-                # 模糊匹配 text
-                elif text in elem_text:
-                    is_match = True
-                    attr_type = 'textContains'
-                    attr_value = text
-                # 模糊匹配 content-desc
-                elif text in elem_desc:
-                    is_match = True
-                    attr_type = 'descriptionContains'
-                    attr_value = text
+                if exact_match:
+                    # 精确匹配模式（用于定位元素）：优先精确匹配
+                    # 精确匹配 text
+                    if elem_text == text:
+                        is_match = True
+                        attr_type = 'text'
+                        attr_value = text
+                    # 精确匹配 content-desc
+                    elif elem_desc == text:
+                        is_match = True
+                        attr_type = 'description'
+                        attr_value = text
+                    # 精确匹配找不到时，再尝试包含匹配（作为兜底）
+                    elif text in elem_text:
+                        is_match = True
+                        attr_type = 'textContains'
+                        attr_value = text
+                    # 包含匹配 content-desc
+                    elif text in elem_desc:
+                        is_match = True
+                        attr_type = 'descriptionContains'
+                        attr_value = text
+                else:
+                    # 包含匹配模式（用于验证元素）：只进行包含匹配
+                    # 包含匹配 text
+                    if text in elem_text:
+                        is_match = True
+                        attr_type = 'textContains'
+                        attr_value = text
+                    # 包含匹配 content-desc
+                    elif text in elem_desc:
+                        is_match = True
+                        attr_type = 'descriptionContains'
+                        attr_value = text
                 
                 if is_match and bounds:
                     # 计算元素的中心点坐标
@@ -1447,6 +1463,17 @@ class BasicMobileToolsLite:
             
             if not matched_elements:
                 return None
+            
+            # 精确匹配模式下，优先返回精确匹配的元素（text/description），再返回包含匹配的元素
+            if exact_match:
+                exact_matches = [m for m in matched_elements if m['attr_type'] in ['text', 'description']]
+                contains_matches = [m for m in matched_elements if m['attr_type'] in ['textContains', 'descriptionContains']]
+                # 如果有精确匹配，优先使用精确匹配的结果
+                if exact_matches:
+                    matched_elements = exact_matches + contains_matches
+                # 如果没有精确匹配，使用包含匹配的结果
+                else:
+                    matched_elements = contains_matches
             
             # 如果有位置信息，根据位置筛选
             if position and len(matched_elements) > 1:
@@ -1486,6 +1513,7 @@ class BasicMobileToolsLite:
                 }
             
             # 没有位置信息时，优先返回可点击的元素
+            # 由于前面已经排序（精确匹配在前），这里会优先返回精确匹配且可点击的元素
             for match in matched_elements:
                 if match['clickable']:
                     return {
