@@ -3328,7 +3328,7 @@ class BasicMobileToolsLite:
                 pass
             
             if not close_candidates:
-                # 兜底策略：如果检测到弹窗但未找到关闭按钮，且页面元素很少（只有1个可点击元素），直接点击它
+                # 兜底策略1：如果检测到弹窗但未找到关闭按钮，且页面元素很少（只有1个可点击元素），直接点击它
                 if popup_detected and popup_bounds and len(all_clickable_elements) == 1:
                     single_element = all_clickable_elements[0]
                     self.client.u2.click(single_element['center_x'], single_element['center_y'])
@@ -3353,6 +3353,37 @@ class BasicMobileToolsLite:
                         if return_result:
                             result["returned"] = return_result['success']
                     return result
+                
+                # 兜底策略2：即使未检测到弹窗，如果页面只有一个可点击元素，也尝试点击它（可能是特殊类型的弹窗）
+                # 这种情况通常出现在：下载浮层、特殊弹窗等，它们的 resource-id 可能不包含 dialog/popup 等关键词
+                if len(all_clickable_elements) == 1:
+                    single_element = all_clickable_elements[0]
+                    # 检查元素是否占据较大屏幕区域（可能是弹窗）
+                    element_area_ratio = (single_element['width'] * single_element['height']) / (screen_width * screen_height)
+                    # 如果元素占据屏幕 20% 以上，认为是可能的弹窗
+                    if element_area_ratio > 0.2:
+                        self.client.u2.click(single_element['center_x'], single_element['center_y'])
+                        time.sleep(0.5)
+                        
+                        # 检查应用是否跳转
+                        app_check = self._check_app_switched()
+                        return_result = None
+                        if app_check['switched']:
+                            return_result = self._return_to_target_app()
+                        
+                        # 记录操作
+                        rel_x = single_element['center_x'] / screen_width
+                        rel_y = single_element['center_y'] / screen_height
+                        self._record_click('percent', f"{round(rel_x * 100, 1)}%,{round(rel_y * 100, 1)}%", 
+                                          round(rel_x * 100, 1), round(rel_y * 100, 1),
+                                          element_desc="唯一可点击元素(特殊弹窗兜底)")
+                        
+                        result = {"success": True, "clicked": True, "method": "single_clickable_special_popup_fallback"}
+                        if app_check['switched']:
+                            result["switched"] = True
+                            if return_result:
+                                result["returned"] = return_result['success']
+                        return result
                 
                 # 如果没有找到关闭按钮，且不满足兜底条件，返回fallback
                 if popup_detected and popup_bounds:
