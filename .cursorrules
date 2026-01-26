@@ -86,9 +86,11 @@ click_by_text("登录", verify="首页")  # 自动验证"首页"出现
 
 
 ### 核心流程
-1. **读取用例**: `bitable_v1_appTableRecord_search` 查询执行状态为空的用例
+1. **读取用例**: 
+   - 优先查询执行结果为空的用例（待执行），按用例编号从小到大排序
+   - 如果空的用例执行完，再查询执行结果为FAIL的用例（重试），按用例编号从小到大排序
 2. **启动App**: 如果"重启App"=是，先 `terminate_app` 再 `launch_app`
-3. **每批5条**: 最多执行5条用例
+3. **每批5条**: 最多执行5条用例，按用例编号从小到大依次执行
 4. **实时回写**: 每条执行完立即 `bitable_v1_appTableRecord_update` 更新状态
 5. **自动分批**: 5条执行完调用 `mobile_open_new_chat` 打开新会话继续
 
@@ -111,10 +113,10 @@ click_by_text("登录", verify="首页")  # 自动验证"首页"出现
 ### 回写结果
 ```python
 # 成功
-update_record(fields={"执行状态": "✅通过"})
+update_record(fields={"执行结果": "PASS"})
 
 # 失败
-update_record(fields={"执行状态": "❌失败", "失败原因": "元素未找到"})
+update_record(fields={"执行结果": "FAIL", "失败原因": "元素未找到"})
 ```
 
 ### 失败重试策略（最多5步，不循环）
@@ -137,7 +139,7 @@ update_record(fields={"执行状态": "❌失败", "失败原因": "元素未找
 
 尝试5: take_screenshot → AI分析坐标 → click_at_coords(x, y)
   ↓ 失败
-━━━ 放弃！标记❌失败，继续下一条用例 ━━━
+━━━ 放弃！标记FAIL，继续下一条用例 ━━━
 ```
 
 **禁止行为**：
@@ -149,7 +151,7 @@ update_record(fields={"执行状态": "❌失败", "失败原因": "元素未找
 **失败时回写飞书**：
 ```python
 update_record(fields={
-    "执行状态": "❌失败", 
+    "执行结果": "FAIL", 
     "失败原因": "步骤3：点击'登录'失败（已尝试XML/SoM/弹窗/坐标）"
 })
 ```
@@ -162,7 +164,7 @@ update_record(fields={
   ✅ 启动App
   ✅ 关闭弹窗
   ✅ 点击我的
-  📝 回写飞书: ✅通过
+  📝 回写飞书: PASS
 ✅ 用例1通过
 
 ━━━ 批次1完成 (10/12) ━━━

@@ -441,7 +441,7 @@ close_popup()  # 不推荐，浪费调用
 | 用例名称 | 文本 | 用例名称 |
 | 测试步骤 | 文本 | 自然语言描述的步骤 |
 | 验证点 | 多选 | 验证内容 |
-| 执行状态 | 文本 | ✅通过 / ❌失败 |
+| 执行结果 | 文本 | PASS / FAIL |
 | 失败原因 | 单选/文本 | 失败时的原因 |
 | 重启App | 文本 | 是/否 |
 
@@ -449,28 +449,55 @@ close_popup()  # 不推荐，浪费调用
 
 #### 步骤1：读取飞书用例
 
+**执行顺序**：
+1. 优先执行执行结果为空的用例，再执行执行结果为FAIL的用例
+2. 所有用例按用例编号从小到大依次执行
+
 ```python
-# 查询"执行状态"为空的用例（待执行）
-bitable_v1_appTableRecord_search(
+# 方式1：优先查询执行结果为空的用例（待执行）
+空用例 = bitable_v1_appTableRecord_search(
     path={"app_token": "表格Token", "table_id": "表ID"},
     data={
         "filter": {
             "conjunction": "and",
             "conditions": [
-                {"field_name": "执行状态", "operator": "isEmpty"}
+                {"field_name": "执行结果", "operator": "isEmpty"}
             ]
         },
         "sort": [{"field_name": "用例编号", "desc": False}]
     },
-    params={"page_size": 10}  # 每次最多10条
+    params={"page_size": 10}
 )
+
+# 如果空的用例执行完或不足，再查询执行结果为FAIL的用例（重试）
+if len(空用例["items"]) < 10:
+    FAIL用例 = bitable_v1_appTableRecord_search(
+        path={"app_token": "表格Token", "table_id": "表ID"},
+        data={
+            "filter": {
+                "conjunction": "and",
+                "conditions": [
+                    {"field_name": "执行结果", "operator": "is", "value": ["FAIL"]}
+                ]
+            },
+            "sort": [{"field_name": "用例编号", "desc": False}]
+        },
+        params={"page_size": 10 - len(空用例["items"])}
+    )
+    # 合并用例列表：先执行完所有空用例，再执行FAIL用例
+    # 两个列表都已按用例编号从小到大排序，合并后顺序正确
+    用例列表 = 空用例["items"] + FAIL用例["items"]
+else:
+    用例列表 = 空用例["items"]  # 已按用例编号从小到大排序
 ```
 
 #### 步骤2：执行每条用例
 
 ```python
+# 按用例编号从小到大依次执行（用例列表已排序）
 for 用例 in 用例列表[:10]:  # 最多10条
     record_id = 用例["record_id"]
+    用例编号 = 用例["fields"]["用例编号"]
     steps = 用例["fields"]["测试步骤"]
     verify = 用例["fields"].get("验证点", [])
     
@@ -485,7 +512,7 @@ for 用例 in 用例列表[:10]:  # 最多10条
     # 立即回写结果
     bitable_v1_appTableRecord_update(
         path={"app_token": "...", "table_id": "...", "record_id": record_id},
-        data={"fields": {"执行状态": "✅通过"}}
+        data={"fields": {"执行结果": "PASS"}}
     )
 ```
 
@@ -522,7 +549,7 @@ if 已执行10条:
 
 尝试5: take_screenshot → AI分析坐标 → click_at_coords(x, y)
   ↓ 失败
-━━━ 放弃！标记❌失败，继续下一条用例 ━━━
+━━━ 放弃！标记FAIL，继续下一条用例 ━━━
 ```
 
 **⚠️ 禁止行为**：
@@ -552,7 +579,7 @@ bitable_v1_appTableRecord_update(
         "record_id": "recXXXXXXXX"
     },
     data={
-        "fields": {"执行状态": "✅通过"}
+        "fields": {"执行结果": "PASS"}
     }
 )
 
@@ -565,7 +592,7 @@ bitable_v1_appTableRecord_update(
     },
     data={
         "fields": {
-            "执行状态": "❌失败",
+            "执行结果": "FAIL",
             "失败原因": "元素未找到"  # 或其他失败类型
         }
     }
@@ -597,7 +624,7 @@ bitable_v1_appTableRecord_update(
   ✅ 点击设置
   ✅ 点击切换账号
   ✅ Toast验证通过
-  📝 回写飞书: ✅通过
+  📝 回写飞书: PASS
 ✅ 用例1通过
 
 ━━━ 用例2: 浏览电影 ━━━
@@ -607,7 +634,7 @@ bitable_v1_appTableRecord_update(
      → 编号5是目标元素
   ✅ click_by_som(5)
   ✅ 验证: 电影
-  📝 回写飞书: ✅通过
+  📝 回写飞书: PASS
 ✅ 用例2通过
 
 ... (执行到第10条)
@@ -621,9 +648,10 @@ bitable_v1_appTableRecord_update(
 ### 新会话继续
 
 新会话打开后，AI会收到消息"继续执行飞书用例"，然后：
-1. 读取飞书表格，找到"执行状态"为空的用例
-2. 从下一批开始执行
-3. 重复直到所有用例执行完毕
+1. 优先读取飞书表格，找到"执行结果"为空的用例
+2. 如果空的用例执行完，再读取"执行结果"为FAIL的用例
+3. 从下一批开始执行
+4. 重复直到所有用例执行完毕
 
 ---
 
@@ -636,8 +664,13 @@ bitable_v1_appTableRecord_update(
 
 AI:
 1️⃣ [飞书MCP] 读取用例
-   bitable_v1_appTableRecord_search(...)
-   → 获取到12条待执行用例
+   # 优先查询执行结果为空的用例
+   bitable_v1_appTableRecord_search(执行结果为空)
+   → 获取到8条待执行用例
+   # 如果不足10条，再查询执行结果为FAIL的用例
+   bitable_v1_appTableRecord_search(执行结果=FAIL)
+   → 获取到4条FAIL用例
+   → 总计12条用例（8条待执行 + 4条重试）
 
 2️⃣ [批次1] 执行用例1-10
 
@@ -653,7 +686,7 @@ AI:
    [Mobile MCP] start_toast_watch() ✅
    [Mobile MCP] click_by_text("梦醒初八") ✅
    [Mobile MCP] get_toast() → "账号切换成功" ✅
-   [飞书MCP] update_record(执行状态="✅通过") ✅
+   [飞书MCP] update_record(执行结果="PASS") ✅
    ✅ 用例1通过
 
    ... (用例2-10) ...
@@ -668,8 +701,13 @@ AI:
 用户: 继续执行飞书用例
 
 AI:
-1️⃣ [飞书MCP] 读取待执行用例
-   → 获取到2条待执行用例
+1️⃣ [飞书MCP] 读取用例
+   # 优先查询执行结果为空的用例
+   bitable_v1_appTableRecord_search(执行结果为空)
+   → 获取到0条待执行用例（已全部执行完）
+   # 再查询执行结果为FAIL的用例
+   bitable_v1_appTableRecord_search(执行结果=FAIL)
+   → 获取到2条FAIL用例（需要重试）
 
 2️⃣ [批次2] 执行用例11-12
    ... 执行 ...
