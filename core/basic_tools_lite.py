@@ -2687,6 +2687,11 @@ class BasicMobileToolsLite:
                     # class 精简：只保留关键类型
                     if class_name in ('EditText', 'TextInput', 'Button', 'ImageButton', 'CheckBox', 'Switch'):
                         item['type'] = class_name
+                    # 重要：对于 ImageView 等图片类控件，即使没有其他属性，只要有 bounds 就应该返回
+                    # 因为 ImageView 可能是关闭按钮、图标等，对测试很重要
+                    if not item and bounds and class_name in ('ImageView', 'Image', 'ImageButton'):
+                        item['bounds'] = bounds
+                        item['type'] = class_name
                     return item
                 
                 result = []
@@ -3185,6 +3190,10 @@ class BasicMobileToolsLite:
                     center_x = (x1 + x2) // 2
                     center_y = (y1 + y2) // 2
                     
+                    # 计算相对位置（统一在循环开始计算，避免重复计算）
+                    rel_x = center_x / screen_width
+                    rel_y = center_y / screen_height
+                    
                     # 收集所有可点击元素（用于兜底策略：当只有一个可点击元素时点击它）
                     if clickable:
                         all_clickable_elements.append({
@@ -3215,6 +3224,22 @@ class BasicMobileToolsLite:
                         in_popup = (px1 - margin_side <= center_x <= px2 + margin_side and 
                                    py1 - margin_top <= center_y <= py2 + margin_bottom)
                         
+                        # 【新增】兼容第三方广告页面：右上角的 ImageView 即使不在弹窗范围内，也可能是在弹窗上方的关闭按钮
+                        # 判断条件：ImageView 位于屏幕右上角（rel_x > 0.85, rel_y < 0.15）且尺寸合适
+                        is_top_right_imageview = (
+                            'Image' in class_name and
+                            not clickable and
+                            rel_x > 0.85 and
+                            rel_y < 0.15 and
+                            15 <= width <= 120 and
+                            15 <= height <= 120
+                        )
+                        
+                        # 如果是右上角 ImageView，即使不在弹窗范围内，也认为是关闭按钮候选
+                        if is_top_right_imageview:
+                            in_popup = True
+                            is_floating_close = True  # 标记为浮动关闭按钮
+                        
                         # 检查是否是浮动关闭按钮（在弹窗外侧：上方或下方）
                         # 上方浮动关闭按钮（常见：右上角外侧）
                         if center_y < py1 and center_y > py1 - margin_top:
@@ -3241,8 +3266,14 @@ class BasicMobileToolsLite:
                         # 浮动关闭按钮（在弹窗上方外侧）给予高额加分
                         if is_floating_close:
                             popup_edge_bonus += 5.0  # 大幅加分
+                        # 右上角 ImageView 额外加分（第三方广告页面常见）
+                        if is_top_right_imageview:
+                            popup_edge_bonus += 2.0  # 额外加分
                     elif not popup_detected:
-                        # 没有检测到弹窗时，只处理有明确关闭特征的元素
+                        # 没有检测到弹窗时，处理有明确关闭特征的元素
+                        # 同时，也考虑底部中央的 clickable 小元素（可能是关闭按钮）
+                        # 注意：右上角的 ImageView 只在有弹窗的情况下才识别，避免误识别正常页面的右上角图标
+                        
                         # 检查是否有明确的关闭特征（文本、resource-id、content-desc）
                         has_explicit_close_feature = (
                             text in close_texts or
@@ -3251,17 +3282,23 @@ class BasicMobileToolsLite:
                             'dismiss' in resource_id.lower() or
                             'cancel' in resource_id.lower()
                         )
-                        if not has_explicit_close_feature:
-                            continue  # 没有明确关闭特征，跳过
-                        # 有明确关闭特征时，允许处理
+                        
+                        # 【新增】底部中央的 clickable 小元素也可能是关闭按钮（常见于全屏广告、激励视频等）
+                        is_bottom_center_clickable = (
+                            clickable and
+                            rel_y > 0.75 and  # 底部区域（屏幕下方 25%）
+                            0.35 < rel_x < 0.65 and  # 中央区域（屏幕中间 30%）
+                            width >= 20 and width <= 150 and  # 合理尺寸
+                            height >= 20 and height <= 150
+                        )
+                        
+                        if not has_explicit_close_feature and not is_bottom_center_clickable:
+                            continue  # 没有明确关闭特征，且不是底部中央的 clickable 小元素，跳过
+                        # 有明确关闭特征或底部中央 clickable 小元素时，允许处理
                         in_popup = True
                     
                     if not in_popup:
                         continue
-                    
-                    # 相对位置（0-1）
-                    rel_x = center_x / screen_width
-                    rel_y = center_y / screen_height
                     
                     score = 0
                     match_type = ""
@@ -3280,7 +3317,7 @@ class BasicMobileToolsLite:
                     # ===== 策略3：clickable 的小尺寸元素（优先于非 clickable）=====
                     elif clickable:
                         min_size = max(20, int(screen_width * 0.03))
-                        max_size = max(120, int(screen_width * 0.15))
+                        max_size = max(150, int(screen_width * 0.15))  # 扩大最大尺寸，兼容更大的关闭按钮
                         if min_size <= width <= max_size and min_size <= height <= max_size:
                             # clickable 元素基础分更高
                             base_score = 8.0
@@ -3288,6 +3325,10 @@ class BasicMobileToolsLite:
                             if is_floating_close:
                                 base_score = 12.0
                                 match_type = "floating_close"
+                            # 【新增】底部中央的 clickable 小元素（可能是关闭按钮，常见于全屏广告）
+                            elif rel_y > 0.75 and 0.35 < rel_x < 0.65:
+                                base_score = 10.0  # 给予较高分数
+                                match_type = "bottom_center_close"
                             elif 'Image' in class_name:
                                 score = base_score + 2.0
                                 match_type = "clickable_image"
@@ -3296,12 +3337,19 @@ class BasicMobileToolsLite:
                             score = base_score + self._get_position_score(rel_x, rel_y) + popup_edge_bonus
                     
                     # ===== 策略4：ImageView/ImageButton 类型的小元素（非 clickable）=====
+                    # 【增强】兼容第三方广告页面：右上角的 ImageView 即使 clickable="false" 也识别为关闭按钮
                     elif 'Image' in class_name:
                         min_size = max(15, int(screen_width * 0.02))
                         max_size = max(120, int(screen_width * 0.12))
                         if min_size <= width <= max_size and min_size <= height <= max_size:
-                            score = 5.0 + self._get_position_score(rel_x, rel_y) + popup_edge_bonus
-                            match_type = "ImageView"
+                            base_score = 5.0
+                            # 右上角的 ImageView 给予更高分数（第三方广告页面常见）
+                            if rel_x > 0.85 and rel_y < 0.15:
+                                base_score = 8.0  # 提高分数，优先识别
+                                match_type = "ImageView_top_right"
+                            else:
+                                match_type = "ImageView"
+                            score = base_score + self._get_position_score(rel_x, rel_y) + popup_edge_bonus
                     
                     # XML 顺序加分（后出现的元素在上层，更可能是弹窗内的元素）
                     if score > 0:
@@ -3553,8 +3601,69 @@ class BasicMobileToolsLite:
                     has_mask_layer = True
                     mask_idx = elem['idx']
             
-            # 跳过全屏元素
-            if area_ratio > 0.9:
+            # 先检查是否有强弹窗特征（用于后续判断）
+            has_strong_popup_feature = (
+                any(kw in class_name for kw in dialog_class_keywords) or
+                any(kw in resource_id.lower() for kw in dialog_id_keywords) or
+                any(kw in resource_id.lower() for kw in ad_popup_keywords)  # 广告弹窗关键词
+            )
+            
+            # 检查是否有子元素是关闭按钮（作为弹窗特征）
+            has_close_button_child = False
+            elem_bounds = elem['bounds']
+            for other_elem in all_elements:
+                if other_elem['idx'] == elem['idx']:
+                    continue
+                if other_elem['is_close_button']:
+                    # 检查关闭按钮是否在这个元素范围内
+                    ox1, oy1, ox2, oy2 = other_elem['bounds']
+                    ex1, ey1, ex2, ey2 = elem_bounds
+                    if ex1 <= ox1 and ey1 <= oy1 and ex2 >= ox2 and ey2 >= oy2:
+                        has_close_button_child = True
+                        break
+            
+            # 检查是否有右上角的 ImageView 关闭按钮（全屏广告页常见）
+            has_top_right_close = False
+            if area_ratio > 0.9:  # 全屏元素才检查
+                for other_elem in all_elements:
+                    if other_elem['idx'] == elem['idx']:
+                        continue
+                    # 检查是否是右上角的 ImageView
+                    ox1, oy1, ox2, oy2 = other_elem['bounds']
+                    o_center_x = other_elem['center_x']
+                    o_center_y = other_elem['center_y']
+                    o_width = other_elem['width']
+                    o_height = other_elem['height']
+                    o_class = other_elem['class']
+                    
+                    rel_x = o_center_x / screen_width
+                    rel_y = o_center_y / screen_height
+                    
+                    # 右上角的 ImageView（即使 clickable="false"）
+                    if ('Image' in o_class and
+                        rel_x > 0.85 and rel_y < 0.15 and
+                        15 <= o_width <= 120 and 15 <= o_height <= 120):
+                        # 检查是否在当前元素范围内或附近
+                        if (ex1 <= ox1 and ey1 <= oy1 and ex2 >= ox2 and ey2 >= oy2) or \
+                           (abs(ex2 - ox1) < 50 and abs(ey1 - oy2) < 50):  # 在元素右上角附近
+                            has_top_right_close = True
+                            break
+            
+            # 【特殊处理】全屏广告页：如果面积 > 90% 但有关闭按钮或广告特征，也识别为弹窗
+            is_fullscreen_ad = (
+                area_ratio > 0.9 and
+                (
+                    # 有关闭按钮作为子元素
+                    has_close_button_child or
+                    # 有右上角的 ImageView 关闭按钮
+                    has_top_right_close or
+                    # 有广告相关的强特征
+                    any(kw in resource_id.lower() for kw in ad_popup_keywords)
+                )
+            )
+            
+            # 如果不是全屏广告页，跳过全屏元素
+            if area_ratio > 0.9 and not is_fullscreen_ad:
                 continue
             
             # 跳过太小的元素
@@ -3576,27 +3685,6 @@ class BasicMobileToolsLite:
             if y1 < screen_height * 0.15:
                 if 'search' in resource_id.lower() or 'Search' in class_name:
                     continue  # 跳过顶部搜索栏
-            
-            # 先检查是否有强弹窗特征（用于后续判断）
-            has_strong_popup_feature = (
-                any(kw in class_name for kw in dialog_class_keywords) or
-                any(kw in resource_id.lower() for kw in dialog_id_keywords) or
-                any(kw in resource_id.lower() for kw in ad_popup_keywords)  # 广告弹窗关键词
-            )
-            
-            # 检查是否有子元素是关闭按钮（作为弹窗特征）
-            has_close_button_child = False
-            elem_bounds = elem['bounds']
-            for other_elem in all_elements:
-                if other_elem['idx'] == elem['idx']:
-                    continue
-                if other_elem['is_close_button']:
-                    # 检查关闭按钮是否在这个元素范围内
-                    ox1, oy1, ox2, oy2 = other_elem['bounds']
-                    ex1, ey1, ex2, ey2 = elem_bounds
-                    if ex1 <= ox1 and ey1 <= oy1 and ex2 >= ox2 and ey2 >= oy2:
-                        has_close_button_child = True
-                        break
             
             # 【非弹窗特征】如果元素包含明显的页面内容特征，则不是弹窗
             # 检查是否包含视频播放器、内容列表等页面元素
@@ -3636,6 +3724,10 @@ class BasicMobileToolsLite:
             if has_close_button_child:
                 confidence += 0.3
             
+            # 【强特征】全屏广告页且有右上角关闭按钮 (+0.4)
+            if is_fullscreen_ad and has_top_right_close:
+                confidence += 0.4
+            
             # 【中等特征】居中显示 (+0.2)
             # 但如果没有强特征，降低权重
             center_x = elem['center_x']
@@ -3647,7 +3739,8 @@ class BasicMobileToolsLite:
                 any(kw in class_name for kw in dialog_class_keywords) or
                 any(kw in resource_id.lower() for kw in dialog_id_keywords) or
                 any(kw in resource_id.lower() for kw in ad_popup_keywords) or
-                has_close_button_child
+                has_close_button_child or
+                (is_fullscreen_ad and has_top_right_close)  # 全屏广告页且有右上角关闭按钮
             )
             
             if is_centered_x and is_centered_y:
