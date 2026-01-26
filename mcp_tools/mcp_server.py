@@ -867,6 +867,19 @@ class MobileMCPServer:
             }
         ))
         
+        # ==================== Cursor 会话管理 ====================
+        tools.append(Tool(
+            name="mobile_open_new_chat",
+            description="🆕 打开Cursor新会话。用于飞书用例批量执行时自动分批继续。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "发送到新会话的消息", "default": "继续执行飞书用例"}
+                },
+                "required": []
+            }
+        ))
+        
         return tools
     
     async def handle_tool_call(self, name: str, arguments: dict):
@@ -1152,6 +1165,12 @@ class MobileMCPServer:
                     result = {"success": False, "error": "请提供 x_percent/y_percent 或 screenshot_path/x/y/width/height"}
                 return [TextContent(type="text", text=self.format_response(result))]
             
+            # Cursor 会话管理
+            elif name == "mobile_open_new_chat":
+                message = arguments.get("message", "继续执行飞书用例")
+                result = self.tools.open_new_chat(message)
+                return [TextContent(type="text", text=self.format_response(result))]
+            
             else:
                 return [TextContent(type="text", text=f"❌ 未知工具: {name}")]
         
@@ -1174,7 +1193,7 @@ async def async_main():
     async def call_tool(name: str, arguments: dict):
         return await server.handle_tool_call(name, arguments)
     
-    print("🚀 Mobile MCP Server 启动中... [26 个工具]", file=sys.stderr)
+    print("🚀 Mobile MCP Server 启动中... [27 个工具]", file=sys.stderr)
     print("📱 支持 Android / iOS", file=sys.stderr)
     print("👁️ 完全依赖 Cursor 视觉能力，无需 AI 密钥", file=sys.stderr)
     

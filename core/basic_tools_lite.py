@@ -4843,4 +4843,92 @@ class BasicMobileToolsLite:
             return {"success": False, "error": f"需要安装依赖: {e}"}
         except Exception as e:
             return {"success": False, "error": f"添加模板失败: {e}"}
+    
+    def open_new_chat(self, message: str = "继续执行飞书用例") -> Dict:
+        """打开 Cursor 新会话并发送消息
+        
+        用于飞书用例批量执行时，自动分批继续。
+        
+        Args:
+            message: 发送到新会话的消息，默认"继续执行飞书用例"
+        
+        Returns:
+            执行结果
+        
+        依赖:
+            pip install pyautogui pyperclip pygetwindow (macOS/Windows)
+        """
+        import sys
+        import platform
+        
+        try:
+            import pyautogui
+            import pyperclip
+        except ImportError:
+            return {
+                "success": False,
+                "error": "缺少依赖，请执行: pip install pyautogui pyperclip pygetwindow"
+            }
+        
+        try:
+            system = platform.system()
+            
+            # 1. 激活 Cursor 窗口
+            if system == "Darwin":  # macOS
+                import subprocess
+                # 使用 osascript 激活 Cursor
+                script = '''
+                tell application "Cursor"
+                    activate
+                end tell
+                '''
+                subprocess.run(["osascript", "-e", script], check=True)
+                time.sleep(0.3)
+                
+                # 2. 快捷键打开新会话 (Cmd+T)
+                pyautogui.hotkey('command', 't')
+                
+            elif system == "Windows":
+                try:
+                    import pygetwindow as gw
+                    cursor_windows = gw.getWindowsWithTitle('Cursor')
+                    if cursor_windows:
+                        cursor_windows[0].activate()
+                        time.sleep(0.3)
+                except:
+                    pass  # 如果激活失败，继续尝试发送快捷键
+                
+                # 2. 快捷键打开新会话 (Ctrl+T)
+                pyautogui.hotkey('ctrl', 't')
+                
+            else:  # Linux
+                # 2. 快捷键打开新会话 (Ctrl+T)
+                pyautogui.hotkey('ctrl', 't')
+            
+            time.sleep(0.5)  # 等待新会话打开
+            
+            # 3. 复制消息到剪贴板并粘贴
+            pyperclip.copy(message)
+            time.sleep(0.1)
+            
+            if system == "Darwin":
+                pyautogui.hotkey('command', 'v')
+            else:
+                pyautogui.hotkey('ctrl', 'v')
+            
+            time.sleep(0.2)
+            
+            # 4. 按 Enter 发送
+            pyautogui.press('enter')
+            
+            return {
+                "success": True,
+                "message": f"✅ 已打开新会话并发送: {message}"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"打开新会话失败: {e}"
+            }
 
