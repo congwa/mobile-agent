@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.7.5",  # 优化弹窗关闭逻辑：添加特殊弹窗兜底策略
+    version="2.7.6",  # 优化弹窗关闭逻辑：添加特殊弹窗兜底策略
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
