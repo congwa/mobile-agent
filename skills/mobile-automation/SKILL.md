@@ -439,11 +439,21 @@ close_popup()  # 不推荐，浪费调用
 |------|------|------|
 | 用例编号 | 数字 | 唯一标识 |
 | 用例名称 | 文本 | 用例名称 |
-| 测试步骤 | 文本 | 自然语言描述的步骤 |
-| 验证点 | 多选 | 验证内容 |
+| 测试步骤 | 文本 | 自然语言描述的步骤（通常与预期结果一一对应） |
+| 预期结果 | 文本 | 期望的最终状态（与测试步骤一一对应，边执行边验证） |
+| 验证点 | 多选 | 最终验证内容（可选） |
 | 执行结果 | 文本 | PASS / FAIL |
 | 失败原因 | 单选/文本 | 失败时的原因 |
 | 重启App | 文本 | 是/否 |
+
+**重要说明**：
+1. **步骤和预期结果一一对应**：通常第1个步骤对应第1个预期结果，第2个步骤对应第2个预期结果
+2. **边执行边验证**：每执行一个步骤，立即验证对应的预期结果，不能等所有步骤执行完
+3. **混合情况**：
+   - 步骤中可能混有预期结果（如"点击登录，验证跳转到首页"）
+   - 预期结果中可能混有步骤（如"点击确定按钮"）
+   - 需要识别并处理这些混合情况
+4. **查询时**：如果不指定 `field_names` 参数，默认会返回所有字段，包括"预期结果"字段
 
 ### 执行流程
 
@@ -498,14 +508,32 @@ else:
 for 用例 in 用例列表[:10]:  # 最多10条
     record_id = 用例["record_id"]
     用例编号 = 用例["fields"]["用例编号"]
-    steps = 用例["fields"]["测试步骤"]
+    steps = 用例["fields"]["测试步骤"]  # 可能是文本或列表
+    预期结果 = 用例["fields"].get("预期结果", [])  # 读取预期结果字段
     verify = 用例["fields"].get("验证点", [])
     
-    # 解析并执行步骤
-    for step in parse_steps(steps):
-        execute_step(step)  # 调用Mobile MCP
+    # 解析步骤和预期结果（处理文本格式，按行或序号分割）
+    steps_list = parse_steps_to_list(steps)  # 将步骤文本解析为步骤列表
+    expected_list = parse_expected_to_list(预期结果)  # 将预期结果解析为列表
     
-    # 验证
+    # 边执行边验证：步骤和预期结果通常一一对应
+    for i, step in enumerate(steps_list):
+        # 执行步骤
+        execute_step(step)  # 调用Mobile MCP
+        
+        # 立即验证对应的预期结果（如果存在）
+        if i < len(expected_list):
+            expected = expected_list[i]
+            # 如果预期结果中包含操作步骤，先执行操作
+            if is_action_in_expected(expected):
+                execute_action_from_expected(expected)
+            # 验证预期结果
+            verify_expected(expected)
+        # 如果步骤中混有预期结果，也需要验证
+        if has_expected_in_step(step):
+            verify_from_step(step)
+    
+    # 最终验证点（如果有）
     if verify:
         assert_text(verify[0])
     
@@ -515,6 +543,13 @@ for 用例 in 用例列表[:10]:  # 最多10条
         data={"fields": {"执行结果": "PASS"}}
     )
 ```
+
+**关键点**：
+1. **步骤和预期结果一一对应**：通常第1个步骤对应第1个预期结果，第2个步骤对应第2个预期结果
+2. **边执行边验证**：每执行一个步骤，立即验证对应的预期结果，不能等所有步骤执行完
+3. **处理混合情况**：
+   - 步骤中包含预期结果（如"点击登录，验证跳转到首页"）→ 执行步骤后立即验证
+   - 预期结果中包含步骤（如"点击确定按钮"）→ 识别并执行该操作后再验证
 
 #### 步骤3：分批继续
 
@@ -570,8 +605,10 @@ if 已执行10条:
 
 ### 回写飞书示例
 
+**重要：执行结果必须使用 "PASS" 或 "FAIL"，不要使用 "✅通过" 或 "❌失败"**
+
 ```python
-# ✅ 成功用例
+# 成功用例（必须使用 "PASS"）
 bitable_v1_appTableRecord_update(
     path={
         "app_token": "L4x6bKk41advCQs94nMc2p7onTg",
@@ -583,7 +620,7 @@ bitable_v1_appTableRecord_update(
     }
 )
 
-# ❌ 失败用例
+# 失败用例（必须使用 "FAIL"）
 bitable_v1_appTableRecord_update(
     path={
         "app_token": "L4x6bKk41advCQs94nMc2p7onTg",
@@ -616,24 +653,29 @@ bitable_v1_appTableRecord_update(
 执行飞书用例 (批次1, 用例1-10)
 
 ━━━ 用例1: 切换账号 ━━━
-  ✅ 终止App
-  ✅ 启动App
-  ✅ 等待2秒
-  ✅ 关闭弹窗
-  ✅ 点击我的
-  ✅ 点击设置
-  ✅ 点击切换账号
-  ✅ Toast验证通过
+  ✅ 步骤1: 终止App
+  ✅ 步骤2: 启动App
+  ✅ 验证: App已启动
+  ✅ 步骤3: 等待2秒
+  ✅ 步骤4: 关闭弹窗
+  ✅ 验证: 弹窗已关闭
+  ✅ 步骤5: 点击我的
+  ✅ 验证: 进入我的页面
+  ✅ 步骤6: 点击设置
+  ✅ 验证: 进入设置页面
+  ✅ 步骤7: 点击切换账号
+  ✅ 验证: Toast提示"账号切换成功"
   📝 回写飞书: PASS
 ✅ 用例1通过
 
 ━━━ 用例2: 浏览电影 ━━━
-  ✅ 启动App
-  ❌ 点击双雄出击 (元素未找到)
+  ✅ 步骤1: 启动App
+  ✅ 验证: App已启动
+  ❌ 步骤2: 点击双雄出击 (元素未找到)
      → 尝试SoM识别...
      → 编号5是目标元素
   ✅ click_by_som(5)
-  ✅ 验证: 电影
+  ✅ 验证: 进入电影播放页
   📝 回写飞书: PASS
 ✅ 用例2通过
 
@@ -644,6 +686,8 @@ bitable_v1_appTableRecord_update(
 
 [调用 mobile_open_new_chat]
 ```
+
+**注意**：每个步骤执行后立即验证对应的预期结果，体现"边执行边验证"的逻辑。
 
 ### 新会话继续
 
@@ -675,17 +719,21 @@ AI:
 2️⃣ [批次1] 执行用例1-10
 
    ━━━ 用例1: 切换账号 ━━━
-   [Mobile MCP] terminate_app("com.qiyi.video.lite") ✅
-   [Mobile MCP] launch_app("com.qiyi.video.lite") ✅
-   [Mobile MCP] wait(2) ✅
-   [Mobile MCP] list_elements() → 检测到弹窗
+   [步骤1] [Mobile MCP] terminate_app("com.qiyi.video.lite") ✅
+   [步骤2] [Mobile MCP] launch_app("com.qiyi.video.lite") ✅
+   [验证] list_elements() → 验证App已启动 ✅
+   [步骤3] [Mobile MCP] wait(2) ✅
+   [步骤4] [Mobile MCP] list_elements() → 检测到弹窗
    [Mobile MCP] close_popup() ✅
-   [Mobile MCP] click_by_text("我的") ✅
-   [Mobile MCP] click_by_text("设置") ✅
-   [Mobile MCP] click_by_text("切换账号") ✅
-   [Mobile MCP] start_toast_watch() ✅
-   [Mobile MCP] click_by_text("梦醒初八") ✅
-   [Mobile MCP] get_toast() → "账号切换成功" ✅
+   [验证] list_elements() → 验证弹窗已关闭 ✅
+   [步骤5] [Mobile MCP] click_by_text("我的") ✅
+   [验证] list_elements() → 验证进入我的页面 ✅
+   [步骤6] [Mobile MCP] click_by_text("设置") ✅
+   [验证] list_elements() → 验证进入设置页面 ✅
+   [步骤7] [Mobile MCP] click_by_text("切换账号") ✅
+   [步骤8] [Mobile MCP] start_toast_watch() ✅
+   [步骤9] [Mobile MCP] click_by_text("梦醒初八") ✅
+   [验证] [Mobile MCP] get_toast() → "账号切换成功" ✅
    [飞书MCP] update_record(执行结果="PASS") ✅
    ✅ 用例1通过
 

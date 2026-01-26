@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.7.6",  # 更新飞书用例执行规则：执行状态改为执行结果，支持PASS/FAIL
+    version="2.7.7",  # 更新飞书用例执行规则：支持边执行边验证，步骤与预期结果一一对应
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",
