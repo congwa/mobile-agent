@@ -4978,8 +4978,8 @@ class BasicMobileToolsLite:
                 subprocess.run(["osascript", "-e", script], check=True)
                 time.sleep(0.3)
                 
-                # 2. 快捷键打开新会话 (Cmd+T)
-                pyautogui.hotkey('command', 't')
+                # 2. 快捷键打开新会话 (Cmd+N 或 Cmd+R)
+                pyautogui.hotkey('command', 'n')
                 
             elif system == "Windows":
                 try:
@@ -4991,12 +4991,12 @@ class BasicMobileToolsLite:
                 except:
                     pass  # 如果激活失败，继续尝试发送快捷键
                 
-                # 2. 快捷键打开新会话 (Ctrl+T)
-                pyautogui.hotkey('ctrl', 't')
+                # 2. 快捷键打开新会话 (Ctrl+N)
+                pyautogui.hotkey('ctrl', 'n')
                 
             else:  # Linux
-                # 2. 快捷键打开新会话 (Ctrl+T)
-                pyautogui.hotkey('ctrl', 't')
+                # 2. 快捷键打开新会话 (Ctrl+N)
+                pyautogui.hotkey('ctrl', 'n')
             
             time.sleep(0.5)  # 等待新会话打开
             

@@ -45,3 +45,8 @@ mcp>=0.9.0
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 
+# Windows 自动化支持（mobile_open_new_chat 功能需要）
+pyautogui>=0.9.0      # 模拟键盘操作
+pyperclip>=1.8.0      # 剪贴板操作
+pygetwindow>=0.0.9    # 窗口激活
+
