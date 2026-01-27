@@ -624,18 +624,24 @@ else:
 执行用例前，先处理预置条件：
 
 ```python
-def handle_preconditions(case):
-    """处理用例的预置条件"""
+def handle_preconditions(case, already_restarted=False):
+    """处理用例的预置条件
+    
+    Args:
+        case: 用例记录
+        already_restarted: 是否已经执行过重启App（如果预置条件要求重启App，已在前面执行）
+    """
     precondition = case["fields"].get("预置条件", "").strip()
     if not precondition:
         return
     
     # AI理解预置条件文本，识别需要执行的操作
-    # 1. 识别是否需要重启App
-    if "重启App" in precondition or "需要重启" in precondition:
-        terminate_app("com.qiyi.video.lite")
-        launch_app("com.qiyi.video.lite")
-        wait(2)
+    # 1. 识别是否需要重启App（如果已经在前面执行过，则跳过）
+    if not already_restarted:
+        if "重启App" in precondition or "需要重启" in precondition:
+            terminate_app("com.qiyi.video.lite")
+            launch_app("com.qiyi.video.lite")
+            wait(2)
     
     # 2. 识别登录状态要求
     if "未登录" in precondition:
@@ -744,8 +750,37 @@ for 用例 in 用例列表[:10]:  # 最多10条
     record_id = 用例["record_id"]
     用例编号 = 用例["fields"]["用例编号"]
     
-    # 先处理预置条件
-    handle_preconditions(用例)
+    # 第一步：读取预置条件
+    precondition = 用例["fields"].get("预置条件", "").strip()
+    
+    # 第二步：如果预置条件中明确要求重启App，则直接重启App
+    if "重启App" in precondition or "需要重启" in precondition or "重启App：是" in precondition:
+        # 预置条件要求重启App，直接执行重启
+        terminate_app("com.qiyi.video.lite")
+        launch_app("com.qiyi.video.lite")
+        wait(2)
+        elements = list_elements()
+        # 检测确保在首页
+        if not is_home_page(elements):
+            log_warning(f"用例{用例编号}：重启后未在首页，但继续执行")
+    else:
+        # 预置条件没有要求重启App，检查当前页面状态
+        elements = list_elements()
+        if not is_home_page(elements):
+            # 不在首页，终止应用并重新启动
+            terminate_app("com.qiyi.video.lite")
+            launch_app("com.qiyi.video.lite")
+            wait(2)
+            elements = list_elements()
+            # 再次检测确保在首页
+            if not is_home_page(elements):
+                # 如果仍然不在首页，记录警告但继续执行
+                log_warning(f"用例{用例编号}：启动后未在首页，但继续执行")
+    
+    # 第三步：处理其他预置条件（登录/登出、切换账号、开启AB实验等）
+    # 如果预置条件要求重启App，已经在前面执行过了，传入already_restarted=True避免重复执行
+    requires_restart = "重启App" in precondition or "需要重启" in precondition or "重启App：是" in precondition
+    handle_preconditions(用例, already_restarted=requires_restart)
     steps = 用例["fields"]["测试步骤"]  # 可能是文本或列表
     预期结果 = 用例["fields"].get("预期结果", [])  # 读取预期结果字段
     verify = 用例["fields"].get("验证点", [])
@@ -775,6 +810,9 @@ for 用例 in 用例列表[:10]:  # 最多10条
     if verify:
         assert_text(verify[0])
     
+    # 【强制】用例执行完成后，必须回退到首页（确保下一条用例从干净状态开始）
+    return_to_home_page()
+    
     # 立即回写结果
     bitable_v1_appTableRecord_update(
         path={"app_token": "...", "table_id": "...", "record_id": record_id},
@@ -788,6 +826,43 @@ for 用例 in 用例列表[:10]:  # 最多10条
 3. **处理混合情况**：
    - 步骤中包含预期结果（如"点击登录，验证跳转到首页"）→ 执行步骤后立即验证
    - 预期结果中包含步骤（如"点击确定按钮"）→ 识别并执行该操作后再验证
+4. **【强制】用例执行完成后回退到首页**：每条用例执行完成后，必须回退到应用首页，确保下一条用例从干净状态开始
+
+**回退到首页的方法**：
+```python
+def return_to_home_page():
+    """用例执行完成后，回退到应用首页"""
+    # 方法1：点击底部导航栏的"首页"标签（最直接）
+    elements = list_elements()
+    if has_text(elements, "首页"):
+        click_by_text("首页")
+        wait(1)
+        elements = list_elements()
+        if is_home_page(elements):
+            return  # 已回到首页
+    
+    # 方法2：按返回键多次，直到回到首页
+    for i in range(5):  # 最多按5次返回键
+        press_key("back")
+        wait(1)
+        elements = list_elements()
+        if is_home_page(elements):
+            return  # 已回到首页
+    
+    # 方法3：如果以上方法都失败，终止应用并重新启动
+    terminate_app("com.qiyi.video.lite")
+    launch_app("com.qiyi.video.lite")
+    wait(2)
+
+def is_home_page(elements):
+    """判断是否在首页（通过检测首页特征元素）"""
+    # 检测首页特征元素（如搜索框、推荐内容、底部导航栏等）
+    home_indicators = ["搜索", "推荐", "首页", "找剧"]
+    for indicator in home_indicators:
+        if has_text(elements, indicator):
+            return True
+    return False
+```
 
 #### 步骤3：分批继续
 
