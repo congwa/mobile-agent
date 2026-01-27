@@ -107,26 +107,82 @@ list_elements() + input_text_by_id() + click_by_text()  # ❌ 禁止
 elements = list_elements()
 # 等待结果，分析找到输入框ID
 
-# 步骤2：输入用户名（基于步骤1的结果）
+# 步骤2：如果遇到登录页面，切换到密码登录
+if is_login_page(elements):
+    click_by_text("密码登录")  # 切换到密码登录
+    wait(1)
+    elements = list_elements()  # 重新获取页面元素
+
+# 步骤3：从账号配置表格读取账号信息
+account_info = get_account_from_table(account_type)  # 根据账号类型查询
+
+# 步骤4：输入用户名（基于步骤1的结果）
 username_id = find_input_id(elements, "username")
-input_text_by_id(username_id, "test123")
+input_text_by_id(username_id, account_info["username"])
 # 等待结果返回
 
-# 步骤3：输入密码
+# 步骤5：输入密码
 password_id = find_input_id(elements, "password")  # 复用步骤1的结果
-input_text_by_id(password_id, "password")
+input_text_by_id(password_id, account_info["password"])
 # 等待结果返回
 
-# 步骤4：点击登录（使用verify参数自动验证）
+# 步骤6：点击登录（使用verify参数自动验证）
 click_by_text("登录", verify="首页")
 # verify参数会在点击后自动验证，无需额外调用
 ```
 
+### 搜索输入流程
+**输入文案前，必须先清空搜索框**：
+```python
+# 步骤1：点击搜索框
+click_by_id("search_input")
+
+# 步骤2：清空搜索框（长按全选删除，或点击清空按钮）
+# 方法1：查找清空按钮
+elements = list_elements()
+if has_clear_button(elements):
+    click_by_id("clear_button")
+else:
+    # 方法2：长按全选后删除
+    long_press_by_id("search_input")
+    press_key("back")  # 删除选中内容
+
+# 步骤3：输入目标文案
+input_text_by_id("search_input", "目标文案")
+```
+
 ### 滚动查找元素
-如果元素可能在屏幕外：
-1. list_elements 检查
-2. 找不到就 swipe("up")
-3. 重复直到找到或到底
+**如果当前页面找不到某个元素，需要从下往上滑动页面查找元素，最多滑动5次**
+
+**正确流程**：
+```python
+# 步骤1：list_elements 检查元素是否存在
+elements = list_elements()
+if has_target_element(elements, "目标元素"):
+    # 找到了，直接操作
+    click_by_text("目标元素")
+else:
+    # 步骤2：从下往上滑动查找（最多5次）
+    max_swipes = 5
+    for i in range(max_swipes):
+        swipe("up")  # 从下往上滑动
+        wait(1)  # 等待页面加载
+        elements = list_elements()
+        if has_target_element(elements, "目标元素"):
+            click_by_text("目标元素")
+            break
+    else:
+        # 5次滑动后仍未找到，标记失败
+        mark_fail("元素未找到（已滑动5次）")
+```
+
+**重要规则**：
+- ✅ **必须**：从下往上滑动（swipe("up")），而不是从上往下滑动
+- ✅ **必须**：最多滑动5次，超过5次仍未找到则放弃
+- ✅ **必须**：每次滑动后等待1-2秒，让页面加载完成
+- ✅ **必须**：每次滑动后重新调用 list_elements() 检查元素
+- ❌ **禁止**：使用 swipe("down") 从上往下滑动查找元素
+- ❌ **禁止**：无限滑动查找元素
 
 ### 处理多个相同文案
 使用 position 参数：click_by_text("更多", position="top")
@@ -152,7 +208,12 @@ click_by_text("登录", verify="首页")
 3. assert_toast("成功")
 
 ## 错误处理
-- 元素找不到：用 list_elements 确认完整文本 / swipe 滚动 / wait 等待加载 / close_popup 关闭弹窗
+- 元素找不到：
+  1. 用 list_elements 确认完整文本
+  2. **从下往上滑动查找**（swipe("up")，最多5次）
+  3. wait 等待加载
+  4. close_popup 关闭弹窗
+  5. 如果5次滑动后仍未找到，标记失败
 - 设备断连：check_connection 检查
 - 点击无效：尝试点击父元素或使用坐标
 
@@ -193,7 +254,14 @@ click_by_text("登录", verify="首页")
 1. **读取用例**: 
    - 优先查询执行结果为空的用例（待执行），按用例编号从小到大排序
    - 如果空的用例执行完，再查询执行结果为FAIL的用例（重试），按用例编号从小到大排序
-2. **处理预置条件**: 读取"预置条件"字段，AI理解自然语言后执行前置操作（重启App、登录/登出、切换账号、开启AB实验等）
+2. **每条用例执行流程**：
+   - **第一步**：打开被测应用（如com.qiyi.video.lite）
+     - 检测当前页面状态（list_elements）
+     - 如果在首页，直接执行用例
+     - 如果不在首页，终止应用（terminate_app）再重新启动（launch_app）
+   - **处理预置条件**: 读取"预置条件"字段，AI理解自然语言后执行前置操作（登录/登出、切换账号、开启AB实验等）
+   - **执行用例步骤**: 按步骤执行，边执行边验证
+   - **最后一步**：返回到应用首页（确保下一条用例从干净状态开始）
 3. **每批5条**: 最多执行5条用例，按用例编号从小到大依次执行
 4. **实时回写**: 每条执行完立即 `bitable_v1_appTableRecord_update` 更新状态
 5. **自动分批**: 5条执行完调用 `mobile_open_new_chat` 打开新会话继续
@@ -207,11 +275,63 @@ click_by_text("登录", verify="首页")
 | 预置条件文本 | AI理解 | 执行操作 |
 |------------|--------|---------|
 | "重启App：是" / "需要重启App" | 需要重启App | `terminate_app()` → `launch_app()` → `wait(2)` |
-| "未登录" | 确保未登录状态 | 检查登录状态，如已登录则退出登录 |
-| "需要登录" | 需要登录 | 使用默认账号登录 |
-| "需要登录，黄金会员" | 需要登录且为黄金会员 | 从账号配置表格查询黄金会员账号并登录 |
+| "未登录" | 确保未登录状态 | 检查登录状态，如已登录则退出登录（进入【我的】→【设置】→【退出登录】） |
+| "需要登录" | 需要登录 | 从账号配置表格读取默认账号类型，执行登录 |
+| "需要登录，黄金会员" | 需要登录且为黄金会员 | 从账号配置表格查询"黄金会员"类型账号并登录 |
 | "账号：8419-B测试账号" | 使用特殊账号 | 从账号配置表格查询该账号信息并登录 |
 | "AB实验：8419-B" | 开启AB实验 | 切换到8419-B实验环境 |
+
+#### 登录/登出操作流程
+
+**退出登录流程**（用例前提为"未登录"时）：
+```python
+# 步骤1：进入【我的】底tab
+click_by_text("我的")
+
+# 步骤2：查找【设置】入口（可能需要从下往上滑动）
+elements = list_elements()
+if not has_text(elements, "设置"):
+    swipe("up")  # 从下往上滑动查找
+    elements = list_elements()
+
+# 步骤3：点击【设置】
+click_by_text("设置")
+
+# 步骤4：点击【退出登录】
+click_by_text("退出登录")
+
+# 步骤5：确认退出（如果有确认弹窗）
+wait(1)
+elements = list_elements()
+if has_text(elements, "确定") or has_text(elements, "确认"):
+    click_by_text("确定")  # 或 "确认"
+```
+
+**登录流程**（用例前提为"已登录"时）：
+```python
+# 步骤1：从账号配置表格读取账号信息
+# 根据预置条件中的账号类型（如"黄金会员"、"非会员"等）查询账号配置表格
+account_info = query_account_table(account_type="黄金会员")  # 示例
+
+# 步骤2：检测是否需要登录（检查当前是否已登录）
+elements = list_elements()
+if is_login_page(elements):
+    # 步骤3：切换到密码登录
+    click_by_text("密码登录")
+    wait(1)
+    elements = list_elements()
+    
+    # 步骤4：输入账号
+    username_id = find_input_id(elements, "username")  # 或查找账号输入框
+    input_text_by_id(username_id, account_info["用户名"])
+    
+    # 步骤5：输入密码
+    password_id = find_input_id(elements, "password")  # 或查找密码输入框
+    input_text_by_id(password_id, account_info["密码"])
+    
+    # 步骤6：点击登录
+    click_by_text("登录", verify="首页")
+```
 
 #### 执行顺序
 
@@ -256,6 +376,7 @@ click_by_text("登录", verify="首页")
 - "关闭弹窗" / "检测弹窗" → 先 list_elements 检测，有弹窗才 close_popup()
 - "点击登录按钮" → click_by_text("登录")
 - "在用户名框输入test" → input_text_by_id("username", "test")
+- "搜索xxx" → **先清空搜索框** → input_text_by_id("search_input", "xxx")
 - "向上滑动" → swipe("up")
 - "按返回键" → press_key("back")
 - "开始监听Toast" → start_toast_watch()
