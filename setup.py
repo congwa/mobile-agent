@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.7.8",  # 强化MCP工具串行调用规则，确保按需调用避免并发
+    version="2.7.9",  # 统一使用预置条件字段管理前置依赖，支持从账号配置表格读取账号信息
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",

@@ -439,21 +439,126 @@ close_popup()  # 不推荐，浪费调用
 |------|------|------|
 | 用例编号 | 数字 | 唯一标识 |
 | 用例名称 | 文本 | 用例名称 |
+| 预置条件 | 多行文本 | **前置依赖条件**（重启App、登录状态、会员类型、特殊账号、AB实验等，AI理解自然语言） |
 | 测试步骤 | 文本 | 自然语言描述的步骤（通常与预期结果一一对应） |
 | 预期结果 | 文本 | 期望的最终状态（与测试步骤一一对应，边执行边验证） |
 | 验证点 | 多选 | 最终验证内容（可选） |
 | 执行结果 | 文本 | PASS / FAIL |
 | 失败原因 | 单选/文本 | 失败时的原因 |
-| 重启App | 文本 | 是/否 |
 
 **重要说明**：
-1. **步骤和预期结果一一对应**：通常第1个步骤对应第1个预期结果，第2个步骤对应第2个预期结果
-2. **边执行边验证**：每执行一个步骤，立即验证对应的预期结果，不能等所有步骤执行完
-3. **混合情况**：
+1. **预置条件统一管理**：所有前置依赖（重启App、登录状态、会员类型、特殊账号、AB实验等）统一写在"预置条件"字段中，AI理解自然语言后执行
+2. **步骤和预期结果一一对应**：通常第1个步骤对应第1个预期结果，第2个步骤对应第2个预期结果
+3. **边执行边验证**：每执行一个步骤，立即验证对应的预期结果，不能等所有步骤执行完
+4. **混合情况**：
    - 步骤中可能混有预期结果（如"点击登录，验证跳转到首页"）
    - 预期结果中可能混有步骤（如"点击确定按钮"）
    - 需要识别并处理这些混合情况
-4. **查询时**：如果不指定 `field_names` 参数，默认会返回所有字段，包括"预期结果"字段
+5. **查询时**：如果不指定 `field_names` 参数，默认会返回所有字段，包括"预期结果"字段
+
+### 预置条件说明
+
+**预置条件字段**支持自然语言描述，AI会自动理解并执行。常见格式：
+
+#### 1. 重启App
+```
+重启App：是
+```
+或
+```
+需要重启App
+```
+
+#### 2. 登录状态
+```
+未登录
+```
+或
+```
+需要登录
+```
+
+#### 3. 会员类型
+```
+需要登录，黄金会员
+```
+或
+```
+登录状态：已登录-黄金会员
+```
+
+#### 4. 特殊账号
+```
+需要登录，账号：8419-B测试账号
+```
+或
+```
+使用特殊账号：VIP账号001
+```
+
+#### 5. AB实验
+```
+AB实验：实验A、实验B
+```
+或
+```
+开启实验：8419-B
+```
+
+#### 6. 组合条件
+```
+重启App：是
+未登录
+AB实验：8419-B
+```
+或
+```
+需要重启App，登录黄金会员账号，开启8419-B实验
+```
+
+**执行逻辑**：
+1. 读取用例的"预置条件"字段
+2. AI理解自然语言，识别需要执行的前置操作
+3. 按顺序执行：重启App → 登录/登出 → 切换账号 → 开启AB实验等
+4. 账号信息从**账号配置表格**中读取（见下方说明）
+
+### 账号配置表格
+
+账号类型、会员类型、特殊账号等信息单独维护在**账号配置表格**中，便于统一管理。
+
+**表格结构**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| 账号名称 | 文本 | 账号标识（如"8419-B测试账号"、"VIP账号001"） |
+| 账号类型 | 单选 | 非会员/基础会员/黄金会员/白金会员/钻石会员 |
+| 用户名 | 文本 | 登录用户名 |
+| 密码 | 文本 | 登录密码（可选，可加密存储） |
+| 备注 | 文本 | 其他说明信息 |
+
+**读取账号信息**：
+```python
+# 从账号配置表格查询账号信息
+# 注意：必须先获取账号配置表格的Token，不能使用占位符
+account_table_token = get_account_table_token()  # 从用户输入或配置获取
+account_table_id = get_account_table_id()  # 从用户输入或配置获取
+
+if not account_table_token or not account_table_id:
+    raise ValueError("账号配置表格Token缺失，请提供账号配置表格的URL或Token")
+
+account_info = bitable_v1_appTableRecord_search(
+    path={"app_token": account_table_token, "table_id": account_table_id},
+    query={"page_size": 500},
+    body={
+        "filter": {
+            "conjunction": "and",
+            "conditions": [
+                {"field_name": "账号名称", "operator": "is", "value": ["8419-B测试账号"]}
+            ]
+        }
+    }
+)
+```
 
 ### 执行流程
 
@@ -501,13 +606,133 @@ else:
     用例列表 = 空用例["items"]  # 已按用例编号从小到大排序
 ```
 
-#### 步骤2：执行每条用例
+#### 步骤2：处理预置条件
+
+执行用例前，先处理预置条件：
+
+```python
+def handle_preconditions(case):
+    """处理用例的预置条件"""
+    precondition = case["fields"].get("预置条件", "").strip()
+    if not precondition:
+        return
+    
+    # AI理解预置条件文本，识别需要执行的操作
+    # 1. 识别是否需要重启App
+    if "重启App" in precondition or "需要重启" in precondition:
+        terminate_app("com.qiyi.video.lite")
+        launch_app("com.qiyi.video.lite")
+        wait(2)
+    
+    # 2. 识别登录状态要求
+    if "未登录" in precondition:
+        # 确保未登录状态
+        ensure_logged_out()
+    elif "需要登录" in precondition or "登录" in precondition:
+        # 需要登录，进一步判断会员类型和特殊账号
+        account_name = None
+        member_type = None
+        
+        # 提取特殊账号名称（如"账号：8419-B测试账号"）
+        import re
+        account_match = re.search(r"账号[：:]\s*([^\n，,]+)", precondition)
+        if account_match:
+            account_name = account_match.group(1).strip()
+        
+        # 提取会员类型（如"黄金会员"、"白金会员"等）
+        for mt in ["钻石会员", "白金会员", "黄金会员", "基础会员", "非会员"]:
+            if mt in precondition:
+                member_type = mt
+                break
+        
+        # 执行登录
+        if account_name:
+            # 使用特殊账号登录（从账号配置表格查询）
+            login_with_special_account(account_name)
+        elif member_type:
+            # 使用指定会员类型账号登录（从账号配置表格查询）
+            login_with_member_type(member_type)
+        else:
+            # 普通登录
+            login_with_default_account()
+    
+    # 3. 识别AB实验要求
+    ab_match = re.search(r"AB实验[：:]\s*([^\n，,]+)", precondition)
+    if ab_match:
+        experiment = ab_match.group(1).strip()
+        enable_experiment(experiment)
+
+def login_with_special_account(account_name, account_table_token=None, account_table_id=None):
+    """使用特殊账号登录（从账号配置表格查询）"""
+    # 检查账号配置表格Token
+    if not account_table_token or not account_table_id:
+        raise ValueError("账号配置表格Token缺失，请提供账号配置表格的URL或Token")
+    
+    # 从账号配置表格查询账号信息
+    account_info = bitable_v1_appTableRecord_search(
+        path={"app_token": account_table_token, "table_id": account_table_id},
+        query={"page_size": 10},
+        body={
+            "filter": {
+                "conjunction": "and",
+                "conditions": [
+                    {"field_name": "账号名称", "operator": "is", "value": [account_name]}
+                ]
+            }
+        }
+    )
+    
+    if account_info["data"]["items"]:
+        account = account_info["data"]["items"][0]["fields"]
+        username = account.get("用户名", "")
+        password = account.get("密码", "")
+        # 执行登录操作
+        login(username, password)
+    else:
+        raise ValueError(f"未找到账号: {account_name}")
+
+def login_with_member_type(member_type, account_table_token=None, account_table_id=None):
+    """使用指定会员类型账号登录（从账号配置表格查询）"""
+    # 检查账号配置表格Token
+    if not account_table_token or not account_table_id:
+        raise ValueError("账号配置表格Token缺失，请提供账号配置表格的URL或Token")
+    
+    # 从账号配置表格查询该会员类型的账号
+    account_info = bitable_v1_appTableRecord_search(
+        path={"app_token": account_table_token, "table_id": account_table_id},
+        query={"page_size": 10},
+        body={
+            "filter": {
+                "conjunction": "and",
+                "conditions": [
+                    {"field_name": "账号类型", "operator": "is", "value": [member_type]}
+                ]
+            }
+        }
+    )
+    
+    if account_info["data"]["items"]:
+        # 随机选择一个账号（避免账号被锁定）
+        import random
+        account = random.choice(account_info["data"]["items"])["fields"]
+        username = account.get("用户名", "")
+        password = account.get("密码", "")
+        # 执行登录操作
+        login(username, password)
+    else:
+        raise ValueError(f"未找到{member_type}类型的账号")
+```
+
+#### 步骤3：执行每条用例
 
 ```python
 # 按用例编号从小到大依次执行（用例列表已排序）
 for 用例 in 用例列表[:10]:  # 最多10条
     record_id = 用例["record_id"]
     用例编号 = 用例["fields"]["用例编号"]
+    
+    # 先处理预置条件
+    handle_preconditions(用例)
     steps = 用例["fields"]["测试步骤"]  # 可能是文本或列表
     预期结果 = 用例["fields"].get("预期结果", [])  # 读取预期结果字段
     verify = 用例["fields"].get("验证点", [])
@@ -636,16 +861,47 @@ bitable_v1_appTableRecord_update(
 )
 ```
 
-### 常用飞书表格Token
+### 表格Token获取
 
-用户常用的飞书表格，记住这些Token：
+**重要**：执行用例前，必须先获取表格Token。Token可以从以下方式获取：
 
-| 表格名称 | app_token | table_id |
-|---------|-----------|----------|
-| 测试用例表 | L4x6bKk41advCQs94nMc2p7onTg | tbl1INs6U51p2qWQ |
+#### 1. 从用户输入获取
+- 用户直接提供表格URL
+- 用户直接提供 app_token 和 table_id
 
-> 如果用户提供新的表格URL，从URL中解析Token：
-> `https://xxx.feishu.cn/base/{app_token}?table={table_id}`
+#### 2. 从飞书表格URL解析
+```
+URL格式: https://xxx.feishu.cn/base/{app_token}?table={table_id}&view={view_id}
+
+解析方法:
+- app_token: URL中 base/ 后面的部分
+- table_id: URL中 table= 后面的部分（不含&view等后续参数）
+- view_id: URL中 view= 后面的部分（可选）
+
+示例:
+URL: https://xxx.feishu.cn/base/ABC123?table=tblXXX&view=vewYYY
+→ app_token = ABC123
+→ table_id = tblXXX
+→ view_id = vewYYY (可选)
+```
+
+#### 3. 从配置或环境变量获取
+如果项目中有配置文件或环境变量存储Token，优先使用。
+
+#### 4. 主动询问用户
+如果无法获取Token，必须主动询问用户：
+- "请提供测试用例表格的URL或Token"
+- "请提供账号配置表格的URL或Token"
+
+**执行前检查清单**：
+- ✅ 确认已获取测试用例表格的 app_token 和 table_id
+- ✅ 如果需要登录特殊账号，确认已获取账号配置表格的 app_token 和 table_id
+- ❌ **禁止使用占位符**：不能使用 "XXXX"、"YYYYY" 等占位符执行，必须获取真实Token
+- ❌ **Token缺失时禁止执行**：如果Token缺失，必须询问用户，不能继续执行
+
+**表格类型说明**：
+- **测试用例表格**：用于读取用例、更新执行结果
+- **账号配置表格**：用于查询账号信息（用户名、密码、会员类型等），仅在需要登录特殊账号时使用
 
 ### 输出格式
 
@@ -653,17 +909,17 @@ bitable_v1_appTableRecord_update(
 执行飞书用例 (批次1, 用例1-10)
 
 ━━━ 用例1: 切换账号 ━━━
-  ✅ 步骤1: 终止App
-  ✅ 步骤2: 启动App
-  ✅ 验证: App已启动
-  ✅ 步骤3: 等待2秒
-  ✅ 步骤4: 关闭弹窗
+  📋 预置条件: 需要重启App、已登录状态
+  ✅ 预置条件: 终止App
+  ✅ 预置条件: 启动App
+  ✅ 预置条件: 确保已登录状态
+  ✅ 步骤1: 关闭弹窗
   ✅ 验证: 弹窗已关闭
-  ✅ 步骤5: 点击我的
+  ✅ 步骤2: 点击我的
   ✅ 验证: 进入我的页面
-  ✅ 步骤6: 点击设置
+  ✅ 步骤3: 点击设置
   ✅ 验证: 进入设置页面
-  ✅ 步骤7: 点击切换账号
+  ✅ 步骤4: 点击切换账号
   ✅ 验证: Toast提示"账号切换成功"
   📝 回写飞书: PASS
 ✅ 用例1通过
@@ -719,20 +975,22 @@ AI:
 2️⃣ [批次1] 执行用例1-10
 
    ━━━ 用例1: 切换账号 ━━━
-   [步骤1] [Mobile MCP] terminate_app("com.qiyi.video.lite") ✅
-   [步骤2] [Mobile MCP] launch_app("com.qiyi.video.lite") ✅
-   [验证] list_elements() → 验证App已启动 ✅
-   [步骤3] [Mobile MCP] wait(2) ✅
-   [步骤4] [Mobile MCP] list_elements() → 检测到弹窗
+   [预置条件] 读取"预置条件"字段
+   [预置条件] AI理解：需要重启App、已登录状态
+   [预置条件] [Mobile MCP] terminate_app("com.qiyi.video.lite") ✅
+   [预置条件] [Mobile MCP] launch_app("com.qiyi.video.lite") ✅
+   [预置条件] [Mobile MCP] wait(2) ✅
+   [预置条件] [Mobile MCP] 确保已登录状态 ✅
+   [步骤1] [Mobile MCP] list_elements() → 检测到弹窗
    [Mobile MCP] close_popup() ✅
    [验证] list_elements() → 验证弹窗已关闭 ✅
-   [步骤5] [Mobile MCP] click_by_text("我的") ✅
+   [步骤2] [Mobile MCP] click_by_text("我的") ✅
    [验证] list_elements() → 验证进入我的页面 ✅
-   [步骤6] [Mobile MCP] click_by_text("设置") ✅
+   [步骤3] [Mobile MCP] click_by_text("设置") ✅
    [验证] list_elements() → 验证进入设置页面 ✅
-   [步骤7] [Mobile MCP] click_by_text("切换账号") ✅
-   [步骤8] [Mobile MCP] start_toast_watch() ✅
-   [步骤9] [Mobile MCP] click_by_text("梦醒初八") ✅
+   [步骤4] [Mobile MCP] click_by_text("切换账号") ✅
+   [步骤5] [Mobile MCP] start_toast_watch() ✅
+   [步骤6] [Mobile MCP] click_by_text("梦醒初八") ✅
    [验证] [Mobile MCP] get_toast() → "账号切换成功" ✅
    [飞书MCP] update_record(执行结果="PASS") ✅
    ✅ 用例1通过
