@@ -594,6 +594,12 @@ class MobileMCPServer:
             }
         ))
         
+        tools.append(Tool(
+            name="mobile_hide_keyboard",
+            description="⌨️ 收起键盘。【重要】输入密码后勾选协议前必须调用，确保复选框不被键盘遮挡。登录场景必备！",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ))
+        
         # ==================== 应用管理 ====================
         tools.append(Tool(
             name="mobile_launch_app",
@@ -1038,6 +1044,10 @@ class MobileMCPServer:
             
             elif name == "mobile_wait":
                 result = self.tools.wait(arguments["seconds"])
+                return [TextContent(type="text", text=self.format_response(result))]
+            
+            elif name == "mobile_hide_keyboard":
+                result = await self.tools.hide_keyboard()
                 return [TextContent(type="text", text=self.format_response(result))]
             
             # 应用管理

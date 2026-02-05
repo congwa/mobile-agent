@@ -126,10 +126,19 @@ password_id = find_input_id(elements, "password")  # 复用步骤1的结果
 input_text_by_id(password_id, account_info["password"])
 # 等待结果返回
 
-# 步骤6：点击登录（使用verify参数自动验证）
+# 步骤6：⭐ 收起键盘（必须！确保协议复选框不被键盘遮挡）
+hide_keyboard()
+# 等待键盘收起
+
+# 步骤7：勾选用户协议（如有）
+if has_agreement_checkbox(elements):
+    click_by_text("我已阅读并同意")
+
+# 步骤8：点击登录（使用verify参数自动验证）
 click_by_text("登录", verify="首页")
 # verify参数会在点击后自动验证，无需额外调用
 ```
+
 
 ### 搜索输入流程
 **输入文案前，必须先清空搜索框**：
@@ -395,6 +404,8 @@ if is_login_page(elements):
 - "搜索xxx" → **先清空搜索框** → input_text_by_id("search_input", "xxx")
 - "向上滑动" → swipe("up")
 - "按返回键" → press_key("back")
+- "收起键盘" → hide_keyboard()
+- "勾选协议" / "勾选用户协议" → hide_keyboard() + click_by_text("协议文本")
 - "开始监听Toast" → start_toast_watch()
 - "验证Toast包含xxx" → assert_toast("xxx")
 

@@ -119,8 +119,12 @@ click_by_text("登录", verify="首页")  # 自动验证"首页"出现
 1. list_elements()  # 获取输入框 ID
 2. input_text_by_id("username_input", "test123")
 3. input_text_by_id("password_input", "password")
-4. click_by_text("登录", verify="首页")  # 点击并验证跳转
+4. hide_keyboard()  # ⭐ 必须！收起键盘，确保协议复选框可点击
+5. click_by_text("我已阅读并同意")  # 勾选用户协议
+6. click_by_text("登录", verify="首页")  # 点击并验证跳转
 ```
+
+**⚠️ 重要**：输入密码后键盘可能遮挡协议复选框，必须先调用 `hide_keyboard()` 收起键盘！
 
 ### 场景 3：滚动查找元素
 
@@ -303,6 +307,7 @@ check_connection()
 ### 导航操作
 - `swipe` - 👆 滑动（up/down/left/right）
 - `press_key` - ⌨️ 按键（home/back/enter）
+- `hide_keyboard` - ⌨️ 收起键盘（⭐ 登录场景必备）
 - `wait` - ⏰ 等待
 
 ### 应用管理
@@ -389,6 +394,8 @@ close_popup()  # 不推荐，浪费调用
 | 在XXX输入YYY | `input_text_by_id("XXX", "YYY")` |
 | 向上/下滑动 | `swipe("up/down")` |
 | 按返回键 | `press_key("back")` |
+| 收起键盘 | `hide_keyboard()` |
+| 勾选协议/勾选用户协议 | `hide_keyboard()` + `click_by_text("协议文本")` |
 | 开始监听Toast | `start_toast_watch()` |
 | 验证Toast包含XXX | `assert_toast("XXX")` |
 

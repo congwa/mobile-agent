@@ -382,6 +382,7 @@ pip install pyautogui pyperclip pygetwindow
 | 👆 | `mobile_swipe` | 滑动 |
 | ⌨️ | `mobile_press_key` | 按键 |
 | ⏱️ | `mobile_wait` | 等待 |
+| ⌨️ | `mobile_hide_keyboard` | 收起键盘（登录场景必备） |
 | 📦 | `mobile_launch_app` | 启动应用 |
 | 📦 | `mobile_terminate_app` | 终止应用 |
 | 📦 | `mobile_list_apps` | 列出应用 |

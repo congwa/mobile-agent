@@ -2310,6 +2310,83 @@ class BasicMobileToolsLite:
         except Exception as e:
             return {"success": False, "message": f"❌ 按键失败: {e}"}
     
+    async def hide_keyboard(self) -> Dict:
+        """收起键盘
+        
+        在输入完成后收起键盘，确保页面元素不被键盘遮挡。
+        对于登录场景中需要勾选协议复选框非常有用。
+        
+        Returns:
+            包含操作结果的字典
+        """
+        try:
+            if self._is_ios():
+                ios_client = self._get_ios_client()
+                if ios_client and hasattr(ios_client, 'wda'):
+                    # iOS: 尝试点击键盘上的"完成"/"Done"按钮或发送回车收起键盘
+                    try:
+                        # 尝试点击键盘上的"完成"或"Done"按钮
+                        keyboard = ios_client.wda(className='XCUIElementTypeKeyboard')
+                        if keyboard.exists:
+                            # 尝试找 return/done/完成 按钮
+                            for btn_name in ['return', 'Return', 'done', 'Done', '完成']:
+                                try:
+                                    btn = keyboard.buttons[btn_name]
+                                    if btn.exists:
+                                        btn.click()
+                                        return {"success": True, "message": "✅ 键盘已收起 (iOS - 点击完成按钮)"}
+                                except:
+                                    continue
+                            
+                            # 如果没有找到按钮，尝试点击键盘以外的区域
+                            size = ios_client.wda.window_size()
+                            # 点击屏幕顶部区域（通常不会被键盘遮挡）
+                            ios_client.wda.click(size[0] // 2, 50)
+                            return {"success": True, "message": "✅ 键盘已收起 (iOS - 点击空白区域)"}
+                        else:
+                            return {"success": True, "message": "💡 键盘未显示，无需收起"}
+                    except Exception as e:
+                        # 退回到发送回车键
+                        ios_client.wda.send_keys('\n')
+                        return {"success": True, "message": f"✅ 键盘已收起 (iOS - 发送回车，原因: {e})"}
+                return {"success": False, "message": "❌ iOS 客户端未初始化"}
+            else:
+                # Android: 使用 back 键或 adb 命令收起键盘
+                try:
+                    # 方法1: 使用 adb shell 检测键盘状态
+                    # u2.shell() 返回 ShellResponse(output, exit_code)
+                    shell_result = self.client.u2.shell('dumpsys input_method | grep mInputShown')
+                    # 提取 output 字段（兼容字符串和 ShellResponse 两种情况）
+                    result = shell_result.output if hasattr(shell_result, 'output') else str(shell_result)
+                    
+                    if 'mInputShown=true' in result:
+                        # 键盘正在显示，按返回键收起
+                        self.client.u2.shell('input keyevent 4')  # KEYCODE_BACK
+                        time.sleep(0.3)
+                        
+                        # 验证键盘是否已收起
+                        shell_result_after = self.client.u2.shell('dumpsys input_method | grep mInputShown')
+                        result_after = shell_result_after.output if hasattr(shell_result_after, 'output') else str(shell_result_after)
+                        
+                        if 'mInputShown=false' in result_after:
+                            return {"success": True, "message": "✅ 键盘已收起 (Android - back键)"}
+                        else:
+                            # 如果 back 键没效果，尝试点击空白区域
+                            info = self.client.u2.info
+                            height = info.get('displayHeight', 1920)
+                            width = info.get('displayWidth', 1080)
+                            # 点击标题栏区域
+                            self.client.u2.click(width // 2, 100)
+                            return {"success": True, "message": "✅ 键盘已收起 (Android - 点击空白区域)"}
+                    else:
+                        return {"success": True, "message": "💡 键盘未显示，无需收起"}
+                except Exception as e:
+                    # 备用方案：直接按返回键
+                    self.client.u2.shell('input keyevent 4')
+                    return {"success": True, "message": f"✅ 键盘收起完成 (Android - back键，备用方案: {e})"}
+        except Exception as e:
+            return {"success": False, "message": f"❌ 收起键盘失败: {e}"}
+    
     def wait(self, seconds: float) -> Dict:
         """等待指定时间"""
         time.sleep(seconds)
