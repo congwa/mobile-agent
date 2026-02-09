@@ -38,8 +38,8 @@ export default function HistoryPage() {
     [setSearchQuery, fetchConversations],
   );
 
-  const successCount = conversations.filter((c) => c.status === "success").length;
-  const failedCount = conversations.filter((c) => c.status !== "success").length;
+  const successCount = (conversations ?? []).filter((c) => c.status === "success").length;
+  const failedCount = (conversations ?? []).filter((c) => c.status !== "success").length;
 
   return (
     <div className="flex h-full flex-col">

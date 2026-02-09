@@ -44,7 +44,7 @@ export default function DashboardPage() {
   const { timelineState, isStreaming, status, fetchStatus, sendMessage, stopStreaming } =
     useAgentStore();
 
-  const timeline = timelineState.timeline;
+  const timeline = timelineState.timeline ?? [];
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -78,7 +78,7 @@ export default function DashboardPage() {
 
   // 从 timeline 提取 ToolCallItem 作为操作日志
   const toolItems = useMemo(
-    () => timeline.filter((item): item is ToolCallItem => item.type === "tool.call"),
+    () => (timeline ?? []).filter((item): item is ToolCallItem => item.type === "tool.call"),
     [timeline],
   );
 
