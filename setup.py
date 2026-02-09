@@ -67,6 +67,8 @@ setup(
         "Pillow>=10.0.0",
         "mcp>=0.9.0",
         "python-dotenv>=1.0.0",  # 用于读取 .env 配置
+        "uvicorn[standard]>=0.24.0",  # SSE 模式 HTTP 服务器
+        "starlette>=0.27.0",  # SSE 模式路由
     ],
     extras_require={
         # AI 功能（可选）- 智能工具需要

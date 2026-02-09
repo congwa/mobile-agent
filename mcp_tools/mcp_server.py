@@ -1190,30 +1190,84 @@ class MobileMCPServer:
             return [TextContent(type="text", text=error_msg)]
 
 
-async def async_main():
-    """启动 MCP Server（异步版本）"""
-    server = MobileMCPServer()
+def _create_mcp_server(server: MobileMCPServer) -> Server:
+    """创建并配置 MCP Server 实例"""
     mcp_server = Server("mobile-mcp")
-    
+
     @mcp_server.list_tools()
     async def list_tools():
         return server.get_tools()
-    
+
     @mcp_server.call_tool()
     async def call_tool(name: str, arguments: dict):
         return await server.handle_tool_call(name, arguments)
-    
-    print("🚀 Mobile MCP Server 启动中... [27 个工具]", file=sys.stderr)
+
+    return mcp_server
+
+
+async def async_main_stdio():
+    """启动 MCP Server（stdio 模式）"""
+    server = MobileMCPServer()
+    mcp_server = _create_mcp_server(server)
+
+    print("🚀 Mobile MCP Server 启动中... [stdio 模式]", file=sys.stderr)
     print("📱 支持 Android / iOS", file=sys.stderr)
-    print("👁️ 完全依赖 Cursor 视觉能力，无需 AI 密钥", file=sys.stderr)
-    
+
     async with stdio_server() as (read_stream, write_stream):
         await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())
 
 
+def run_sse_server(host: str = "0.0.0.0", port: int = 3100):
+    """启动 MCP Server（SSE/HTTP 模式）
+
+    通过 HTTP 提供 SSE 端点，供远程 Backend 连接。
+    端点: GET /sse (事件流) + POST /messages (工具调用)
+    """
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.routing import Mount, Route
+    import uvicorn
+
+    server = MobileMCPServer()
+    mcp_server = _create_mcp_server(server)
+    sse = SseServerTransport("/messages")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
+
+    starlette_app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages", app=sse.handle_post_message),
+        ],
+    )
+
+    print(f"🚀 Mobile MCP Server 启动中... [SSE 模式] http://{host}:{port}/sse", file=sys.stderr)
+    print("📱 支持 Android / iOS", file=sys.stderr)
+    uvicorn.run(starlette_app, host=host, port=port)
+
+
 def main():
-    """入口点函数（供 pip 安装后使用）"""
-    asyncio.run(async_main())
+    """入口点函数
+
+    用法:
+        python mcp_server.py           # stdio 模式（兼容旧用法）
+        python mcp_server.py --sse     # SSE/HTTP 模式（推荐）
+        python mcp_server.py --sse --port 3200
+    """
+    if "--sse" in sys.argv:
+        host = "0.0.0.0"
+        port = 3100
+        if "--port" in sys.argv:
+            idx = sys.argv.index("--port")
+            port = int(sys.argv[idx + 1])
+        if "--host" in sys.argv:
+            idx = sys.argv.index("--host")
+            host = sys.argv[idx + 1]
+        run_sse_server(host=host, port=port)
+    else:
+        asyncio.run(async_main_stdio())
 
 
 if __name__ == "__main__":

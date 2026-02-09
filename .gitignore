@@ -30,6 +30,13 @@ build/
 venv/
 env/
 ENV/
+.venv/
+.venv_bundle/
+
+# Node.js / Electron
+node_modules/
+frontend/out/
+frontend/.vite/
 
 # IDE
 .vscode/
@@ -91,3 +98,7 @@ TESTING_GUIDE.md
 # docs/PACKAGE_PUBLISH.md ✅ 提交（发布指南）
 # docs/PUBLISH_AND_USAGE.md ✅ 提交（使用指南）
 
+
+# WindsurfChatOpen
+.windsurfchatopen/
+.windsurfrules
