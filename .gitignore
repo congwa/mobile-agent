@@ -69,6 +69,13 @@ workspace/
 examples/generated_test.py
 examples/test_*_generated.py
 
+# 数据库文件
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+
 # 日志文件
 *.log
 
