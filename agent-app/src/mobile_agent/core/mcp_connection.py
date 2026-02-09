@@ -56,8 +56,7 @@ class MCPConnectionManager:
         logger.info("正在连接 MCP Server (SSE): %s", self._config.url)
 
         self._client = MultiServerMCPClient(server_config)
-        await self._client.__aenter__()
-        self._tools = self._client.get_tools()
+        self._tools = await self._client.get_tools()
 
         logger.info("MCP 连接成功，获取到 %d 个工具", len(self._tools))
         for tool in self._tools:
@@ -69,7 +68,6 @@ class MCPConnectionManager:
         """断开 MCP 连接"""
         if self._client is not None:
             try:
-                await self._client.__aexit__(None, None, None)
                 logger.info("MCP 连接已断开")
             except Exception as e:
                 logger.warning("断开 MCP 连接时出错: %s", e)
