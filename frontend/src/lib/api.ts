@@ -22,6 +22,14 @@ function resolveApiBase(): string {
 
 export let API_BASE = resolveApiBase();
 
+/**
+ * API 根地址（不含 /api/v1）
+ * ChatClient SDK 内部会拼接 /api/v1/chat，因此需要传入根地址
+ */
+export function getApiRoot(): string {
+  return API_BASE.replace(/\/api\/v1\/?$/, "");
+}
+
 /** 运行时更新 Backend 地址（Settings 页面使用） */
 export function setApiBase(url: string): void {
   API_BASE = url;

@@ -17,7 +17,7 @@ import {
   type TimelineItem,
   type ChatEvent,
 } from "@embedease/chat-sdk";
-import { api, API_BASE, type StatusResponse } from "@/lib/api";
+import { api, getApiRoot, type StatusResponse } from "@/lib/api";
 
 interface AgentState {
   // 连接状态
@@ -80,7 +80,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     });
 
     // 创建 ChatClient（使用 SDK 的 SSE 流式客户端）
-    const client = new ChatClient({ baseUrl: API_BASE });
+    const client = new ChatClient({ baseUrl: getApiRoot() });
     set({ _client: client });
 
     try {
