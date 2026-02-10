@@ -64,26 +64,55 @@ NC='\033[0m'
 
 # ── PID 追踪 ──────────────────────────────────────────────
 PIDS=()
+CLEANED_UP=false
 
 cleanup() {
+  if [ "$CLEANED_UP" = true ]; then return; fi
+  CLEANED_UP=true
+
   echo ""
   echo -e "${YELLOW}━━━ 正在关闭所有服务 ━━━${NC}"
+
+  # 1. 杀掉追踪的后台进程
   for pid in "${PIDS[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
   done
+
+  # 2. 杀掉端口上残留的进程（确保端口完全释放）
+  for port in $MCP_PORT $BACKEND_PORT; do
+    local pids
+    pids=$(lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+      echo -e "${YELLOW}  清理端口 $port (pid: $pids)${NC}"
+      echo "$pids" | xargs kill 2>/dev/null || true
+    fi
+  done
+
   sleep 2
+
+  # 3. 强制杀残留
+  for port in $MCP_PORT $BACKEND_PORT; do
+    local pids
+    pids=$(lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+      echo -e "${RED}  强制杀端口 $port (pid: $pids)${NC}"
+      echo "$pids" | xargs kill -9 2>/dev/null || true
+    fi
+  done
+
   for pid in "${PIDS[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill -9 "$pid" 2>/dev/null || true
     fi
   done
+
   echo -e "${GREEN}所有服务已关闭${NC}"
-  exit 0
 }
 
-trap cleanup INT TERM
+# 任何退出方式都触发清理（Ctrl+C / kill / 正常退出）
+trap cleanup INT TERM EXIT
 
 wait_for_port() {
   local port=$1
