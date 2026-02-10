@@ -1,6 +1,6 @@
-# 📱 Mobile MCP AI
+# 📱 Mobile MCP Agent
 
-> 让 Cursor 直接控制手机的 MCP 工具
+> 移动端 AI 自动化测试平台 —— MCP 工具 + AI Agent + 可视化操控台
 
 <div align="center">
 
@@ -15,6 +15,14 @@
 **📱 支持 Android 和 iOS 双平台**
 
 </div>
+
+### 项目包含三个层次
+
+| 层次 | 说明 | 技术栈 |
+|:---:|------|------|
+| **MCP Server** | 39 个移动端自动化工具，可独立配合 Cursor / Claude 使用 | Python · MCP 协议 · PyPI 发布 |
+| **AI Agent** | 智能测试执行引擎，自动编排工具调用、范式降级、结果验证 | LangChain · LangGraph |
+| **Electron 操控台** | 可视化界面，设备预览、测试流程编排、实时操作日志 | Electron · React · TailwindCSS |
 
 ---
 
@@ -44,48 +52,48 @@
 <tr>
 <td width="50%">
 
-### 🧠 AI 原生驱动
+### 🧠 AI Agent 智能执行
 
-基于 MCP 协议与 Cursor AI 深度集成，自然语言直接操控手机，告别繁琐的脚本编写
-
-</td>
-<td width="50%">
-
-### 👁️ 视觉智能识别
-
-Cursor AI 自动分析截图，精准定位 UI 元素，游戏、原生应用通吃
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-### ⚡ 零配置启动
-
-`pip install` 一行命令，开箱即用，无需额外 AI 密钥
+基于 LangChain + LangGraph 的测试 Agent，自动编排工具调用，按步骤执行测试用例
 
 </td>
 <td width="50%">
 
-### 🔄 一键生成脚本
+### � 三范式自动降级
 
-操作即录制，自动生成可复用的 pytest 测试脚本
+元素交互 → SoM 视觉 → 坐标定位，逐级降级，确保操作成功率
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### 🎯 双模式定位
+### 🖥️ 可视化操控台
 
-元素树 + 视觉坐标双引擎，普通 App 秒定位，游戏场景不迷路
+Electron 桌面应用，设备实时预览、测试流程编排、操作日志时间轴
+
+</td>
+<td width="50%">
+
+### � MCP 工具独立可用
+
+39 个工具通过 `pip install mobile-mcp-ai` 安装，可直接配合 Cursor / Claude 使用
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🎯 双平台支持
+
+Android + iOS 双平台，元素树 + 视觉坐标双引擎
 
 </td>
 <td width="50%">
 
 ### 🛡️ 智能验证机制
 
-按键操作自动验证生效，告别"假成功"
+操作结果自动验证，前置条件检查，测试报告自动生成
 
 </td>
 </tr>
@@ -424,7 +432,7 @@ pip install pyautogui pyperclip pygetwindow
 
 本项目的 MCP 工具部分 fork 自 [mobile-mcp](https://gitee.com/chang-xinping/mobile-mcp) 项目，感谢原作者的开源贡献！
 
-## �📄 License
+## �� License
 
 Apache 2.0
 
