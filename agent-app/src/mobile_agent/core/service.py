@@ -194,16 +194,20 @@ class MobileAgentService:
     ) -> None:
         """通过 emitter 推送事件的聊天接口（供 Orchestrator 使用）
 
-        使用 MobileResponseHandler 处理 Agent 流式输出，
-        自动将 AIMessage/ToolMessage 转换为 SDK 标准事件。
+        所有消息均视为测试用例文本：
+        1. 解析 message → TestCase
+        2. 构建 test_agent（携带 TestExecutorMiddleware）
+        3. 流式执行，通过 emitter 推送 StreamEvent
 
         Args:
-            message: 用户消息
+            message: 测试用例原始文本
             conversation_id: 会话 ID
             user_id: 用户 ID
             context: ChatContext（含 emitter）
             agent_id: Agent ID（未使用）
         """
+        from mobile_agent.core.agent_builder import build_test_agent
+        from mobile_agent.models.test_case import parse_test_case
         from mobile_agent.streaming.response_handler import MobileResponseHandler
 
         emitter = getattr(context, "emitter", None)
@@ -223,10 +227,27 @@ class MobileAgentService:
         # 持久化用户消息
         await svc.add_message(conversation_id, "user", message)
 
+        # 解析测试用例 → 构建测试 Agent
+        test_case = parse_test_case(message)
+        logger.info(
+            "chat_emit: 解析测试用例 [%s], 共 %d 步",
+            test_case.name, len(test_case.steps),
+        )
+
+        tools = self._mcp_manager.tools if self._mcp_manager else []
+        test_agent = build_test_agent(
+            tools=tools,
+            llm_config=self._settings.llm,
+            test_case=test_case,
+            checkpointer=self._checkpointer,
+        )
+
+        # 流式执行测试
+        initial_message = f"开始执行测试用例: {test_case.name}"
         config = {"configurable": {"thread_id": conversation_id}}
 
-        async for event in self.agent.astream(
-            {"messages": [HumanMessage(content=message)]},
+        async for event in test_agent.astream(
+            {"messages": [HumanMessage(content=initial_message)]},
             config=config,
             stream_mode="messages",
         ):

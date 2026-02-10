@@ -147,6 +147,26 @@ export interface TestLLMResponse {
   latency_ms: number;
 }
 
+// ── Test Case Parse ─────────────────────────────────────────
+
+export interface ParsedStepItem {
+  index: number;
+  action: string;
+  target: string;
+  params: Record<string, unknown>;
+  mcp_tool_hint: string;
+  raw_text: string;
+}
+
+export interface ParseTestResponse {
+  name: string;
+  preconditions: string[];
+  steps: ParsedStepItem[];
+  verifications: string[];
+  app_package: string;
+  device_serial: string;
+}
+
 // ── API 方法 ─────────────────────────────────────────────────
 
 export const api = {
@@ -189,4 +209,11 @@ export const api = {
       "/settings/reconnect-mcp",
       { method: "POST" },
     ),
+
+  // Test Case
+  parseTestCase: (testCaseText: string) =>
+    request<ParseTestResponse>("/test/parse", {
+      method: "POST",
+      body: JSON.stringify({ test_case_text: testCaseText }),
+    }),
 };

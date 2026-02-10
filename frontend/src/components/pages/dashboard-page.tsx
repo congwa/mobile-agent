@@ -1,22 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Send,
-  Camera,
-  List,
-  Home,
-  X,
+  Play,
+  Search,
   Smartphone,
   CheckCircle2,
   XCircle,
   Loader2,
   ChevronDown,
   ChevronUp,
-  Monitor,
   Square,
   Brain,
+  FlaskConical,
+  ArrowRight,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/utils/tailwind";
-import { api } from "@/lib/api";
+import { api, type ParseTestResponse } from "@/lib/api";
 import ConnectionIndicator from "@/components/layout/connection-indicator";
 import TopBar from "@/components/layout/top-bar";
 import { useAgentStore } from "@/stores/agent-store";
@@ -28,24 +27,33 @@ import type {
   ErrorItem,
 } from "@embedease/chat-sdk";
 
-const QUICK_ACTIONS = [
-  { label: "截图", command: "截取当前屏幕截图", icon: Camera },
-  { label: "列出元素", command: "列出当前页面所有可交互元素", icon: List },
-  { label: "返回桌面", command: "按 Home 键返回桌面", icon: Home },
-  { label: "关闭弹窗", command: "检测并关闭当前弹窗", icon: X },
-  { label: "设备状态", command: "检查设备连接状态", icon: Monitor },
-];
+type TestPhase = "input" | "preview" | "running" | "done";
+
+const DEFAULT_TEST_CASE = `测试任务名称：测试 App 登录流程
+前置条件：App 处于关闭状态
+测试步骤：
+1. 打开App
+2. 等待3秒
+3. 关闭弹窗
+4. 点击消息
+5. 点击立即登录
+验证点：显示"登录"或"注册"
+com.im30.way`;
 
 export default function DashboardPage() {
-  const [inputValue, setInputValue] = useState("");
+  const [testCaseText, setTestCaseText] = useState(DEFAULT_TEST_CASE);
+  const [parsedResult, setParsedResult] = useState<ParseTestResponse | null>(null);
+  const [parseError, setParseError] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [phase, setPhase] = useState<TestPhase>("input");
   const [devicePanelCollapsed, setDevicePanelCollapsed] = useState(false);
   const [logPanelCollapsed, setLogPanelCollapsed] = useState(false);
 
-  const { timelineState, isStreaming, status, fetchStatus, sendMessage, stopStreaming } =
+  const { timelineState, isStreaming, status, fetchStatus, sendMessage, stopStreaming, newConversation } =
     useAgentStore();
 
   const timeline = timelineState.timeline ?? [];
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const timelineEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchStatus();
@@ -54,26 +62,45 @@ export default function DashboardPage() {
   }, [fetchStatus]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [timeline]);
 
-  const handleSend = () => {
-    const text = inputValue.trim();
-    if (!text || isStreaming) return;
-    setInputValue("");
-    sendMessage(text);
-  };
-
-  const handleQuickAction = (command: string) => {
-    if (isStreaming) return;
-    sendMessage(command);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+  // 流结束时自动切换到 done
+  useEffect(() => {
+    if (phase === "running" && !isStreaming && timeline.length > 0) {
+      setPhase("done");
     }
+  }, [isStreaming, phase, timeline.length]);
+
+  const handleParse = async () => {
+    const text = testCaseText.trim();
+    if (!text) return;
+    setParsing(true);
+    setParseError("");
+    setParsedResult(null);
+    try {
+      const result = await api.parseTestCase(text);
+      setParsedResult(result);
+      setPhase("preview");
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : "解析失败");
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleExecute = () => {
+    if (isStreaming || !testCaseText.trim()) return;
+    newConversation();
+    setPhase("running");
+    sendMessage(testCaseText.trim());
+  };
+
+  const handleReset = () => {
+    newConversation();
+    setParsedResult(null);
+    setParseError("");
+    setPhase("input");
   };
 
   // 从 timeline 提取 ToolCallItem 作为操作日志
@@ -82,13 +109,11 @@ export default function DashboardPage() {
     [timeline],
   );
 
-  // 最新截图 ID（从 ToolCallItem 中提取）
+  // 最新截图 ID
   const latestScreenshotId = useMemo(() => {
     for (let i = toolItems.length - 1; i >= 0; i--) {
       const raw = toolItems[i] as unknown as Record<string, unknown>;
-      if (raw.screenshot_id) {
-        return raw.screenshot_id as string;
-      }
+      if (raw.screenshot_id) return raw.screenshot_id as string;
     }
     return null;
   }, [toolItems]);
@@ -122,83 +147,125 @@ export default function DashboardPage() {
           </button>
         )}
 
-        {/* 聊天面板 */}
+        {/* 主面板 */}
         <div className="flex flex-1 flex-col">
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {timeline.length === 0 && (
-              <div className="flex h-full items-center justify-center">
-                <div className="text-center text-muted-foreground">
-                  <Smartphone className="mx-auto mb-3 h-10 w-10 opacity-30" />
-                  <p className="text-sm">输入指令，让 Agent 操控手机</p>
-                  <p className="mt-1 text-xs opacity-60">或使用下方快捷指令</p>
+          {/* 阶段：输入 / 预览 */}
+          {(phase === "input" || phase === "preview") && (
+            <div className="flex flex-1 flex-col overflow-y-auto p-6">
+              {/* 测试用例输入 */}
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <FlaskConical className="h-5 w-5 text-primary" />
+                  <h2 className="text-base font-semibold text-foreground">测试用例</h2>
+                </div>
+                <textarea
+                  value={testCaseText}
+                  onChange={(e) => {
+                    setTestCaseText(e.target.value);
+                    if (phase === "preview") setPhase("input");
+                  }}
+                  placeholder={`测试任务名称：...\n前置条件：...\n测试步骤：\n1. 打开App\n2. 点击xxx\n验证点：...\ncom.example.app`}
+                  className="w-full resize-none rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors font-mono leading-relaxed"
+                  rows={10}
+                />
+                {parseError && (
+                  <p className="mt-2 text-xs text-red-400">{parseError}</p>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={handleParse}
+                    disabled={!testCaseText.trim() || parsing}
+                    className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-4 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {parsing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Search className="h-3.5 w-3.5" />
+                    )}
+                    解析预览
+                  </button>
+                  {phase === "preview" && parsedResult && (
+                    <button
+                      onClick={handleExecute}
+                      disabled={!status?.ready}
+                      className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      开始执行
+                    </button>
+                  )}
                 </div>
               </div>
-            )}
-            {timeline.map((item) => (
-              <TimelineItemBubble key={item.id} item={item} />
-            ))}
-            {isStreaming && (
-              <div className="flex justify-start">
-                <div className="rounded-lg border border-border bg-secondary/60 px-3 py-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
 
-          {/* 快捷指令栏 */}
-          <div className="flex gap-2 border-t border-border bg-card/30 px-4 py-2 overflow-x-auto">
-            {QUICK_ACTIONS.map((action) => {
-              const Icon = action.icon;
-              return (
-                <button
-                  key={action.label}
-                  onClick={() => handleQuickAction(action.command)}
-                  disabled={isStreaming}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {action.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* 输入框 */}
-          <div className="border-t border-border bg-card/50 p-4">
-            <div className="flex items-end gap-3">
-              <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  status?.ready
-                    ? "输入指令，让 Agent 操控手机..."
-                    : "Agent 未就绪，请检查后端服务..."
-                }
-                disabled={isStreaming}
-                className="flex-1 resize-none rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors disabled:opacity-50"
-                rows={1}
-              />
-              {isStreaming ? (
-                <button
-                  onClick={stopStreaming}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-500/80 text-white hover:bg-red-500 transition-colors cursor-pointer"
-                >
-                  <Square className="h-4 w-4" />
-                </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!inputValue.trim()}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Send className="h-4 w-4" />
-                </button>
+              {/* 解析预览 */}
+              {phase === "preview" && parsedResult && (
+                <TestCasePreview data={parsedResult} />
               )}
             </div>
-          </div>
+          )}
+
+          {/* 阶段：运行中 / 完成 */}
+          {(phase === "running" || phase === "done") && (
+            <>
+              {/* 步骤预览摘要 */}
+              {parsedResult && (
+                <div className="border-b border-border bg-card/30 px-6 py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FlaskConical className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium text-foreground">{parsedResult.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {parsedResult.steps.length} 步
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {phase === "running" && (
+                        <button
+                          onClick={stopStreaming}
+                          className="flex items-center gap-1.5 rounded-md bg-red-500/80 px-3 py-1.5 text-xs text-white hover:bg-red-500 transition-colors cursor-pointer"
+                        >
+                          <Square className="h-3 w-3" />
+                          停止
+                        </button>
+                      )}
+                      {phase === "done" && (
+                        <button
+                          onClick={handleReset}
+                          className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          新测试
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 实时 Timeline */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {timeline.length === 0 && phase === "running" && (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="text-center text-muted-foreground">
+                      <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-primary" />
+                      <p className="text-sm">正在初始化测试...</p>
+                    </div>
+                  </div>
+                )}
+                {timeline.map((item) => (
+                  <TimelineItemBubble key={item.id} item={item} />
+                ))}
+                {isStreaming && timeline.length > 0 && (
+                  <div className="flex justify-start">
+                    <div className="rounded-lg border border-border bg-secondary/60 px-3 py-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    </div>
+                  </div>
+                )}
+                <div ref={timelineEndRef} />
+              </div>
+            </>
+          )}
         </div>
 
         {/* 操作日志面板 */}
@@ -231,6 +298,70 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+// ── 测试用例预览 ─────────────────────────────────────────────
+
+function TestCasePreview({ data }: { data: ParseTestResponse }) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/30 p-4">
+      <h3 className="text-sm font-semibold text-foreground mb-3">{data.name}</h3>
+
+      {data.preconditions.length > 0 && (
+        <div className="mb-3">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">前置条件</p>
+          <ul className="space-y-1">
+            {data.preconditions.map((p, i) => (
+              <li key={i} className="text-xs text-foreground/80">{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mb-3">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">测试步骤</p>
+        <div className="space-y-1.5">
+          {data.steps.map((step) => (
+            <div key={step.index} className="flex items-center gap-2 text-xs">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-[10px] font-medium text-primary flex-shrink-0">
+                {step.index}
+              </span>
+              <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary flex-shrink-0">
+                {step.action}
+              </span>
+              {step.target && (
+                <span className="text-foreground/80">{step.target}</span>
+              )}
+              <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+              <span className="font-mono text-[10px] text-muted-foreground">{step.mcp_tool_hint}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {data.verifications.length > 0 && (
+        <div className="mb-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">验证点</p>
+          <ul className="space-y-1">
+            {data.verifications.map((v, i) => (
+              <li key={i} className="text-xs text-foreground/80 flex items-center gap-1.5">
+                <CheckCircle2 className="h-3 w-3 text-green-500/60 flex-shrink-0" />
+                {v}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {data.app_package && (
+        <p className="text-[10px] text-muted-foreground mt-2">
+          包名: <span className="font-mono">{data.app_package}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── 设备面板 ─────────────────────────────────────────────────
 
 function DeviceFrame({ screenshotId }: { screenshotId: string | null | undefined }) {
   return (
@@ -309,7 +440,6 @@ function UserBubble({ item }: { item: UserMessageItem }) {
 }
 
 function LLMCallBubble({ item }: { item: LLMCallClusterItem }) {
-  // 从 children 中提取 content 和 reasoning
   const contentParts: string[] = [];
   const reasoningParts: string[] = [];
 
@@ -353,7 +483,6 @@ function LLMCallBubble({ item }: { item: LLMCallClusterItem }) {
 function ToolCallBubble({ item }: { item: ToolCallItem }) {
   const isRunning = item.status === "running";
   const isError = item.status === "error";
-  // 业务自定义字段：screenshot_id（后端通过 tool.end payload 传递）
   const raw = item as unknown as Record<string, unknown>;
   const screenshotId = raw.screenshot_id as string | undefined;
   const inputStr: string | null = item.input
