@@ -28,6 +28,14 @@
 
 </div>
 
+<div align="center">
+
+![软件运行效果](images/agent1.png)
+
+*Agent 自动化测试执行效果*
+
+</div>
+
 ---
 
 ## ✨ 核心特性
