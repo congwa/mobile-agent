@@ -420,7 +420,11 @@ pip install pyautogui pyperclip pygetwindow
 
 ---
 
-## 📄 License
+## � 致谢
+
+本项目的 MCP 工具部分 fork 自 [mobile-mcp](https://gitee.com/chang-xinping/mobile-mcp) 项目，感谢原作者的开源贡献！
+
+## �📄 License
 
 Apache 2.0
 
