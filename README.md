@@ -440,7 +440,7 @@ Apache 2.0
 
 <div align="center">
 
-[Gitee](https://gitee.com/chang-xinping/mobile-automation-mcp-service) · [GitHub](https://github.com/test111ddff-hash/mobile-mcp-ai) · [PyPI](https://pypi.org/project/mobile-mcp-ai/)
+[Gitee](https://gitee.com/cong_wa/mobile-mcp) · [GitHub](https://github.com/congwa/mobile-agent) · [PyPI](https://pypi.org/project/mobile-mcp-ai/)
 
 **🚀 让移动端测试更简单**
 
