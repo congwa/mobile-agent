@@ -431,6 +431,98 @@ class MobileAgentService:
         """获取中间件配置"""
         return dict(self._middleware_config)
 
+    # ── Test Execution ─────────────────────────────────────
+
+    async def run_test_case(
+        self,
+        *,
+        test_case_text: str,
+        conversation_id: str,
+    ) -> dict[str, Any]:
+        """执行测试用例（同步，等待全部完成）
+
+        Args:
+            test_case_text: 用户原始输入的测试用例文本
+            conversation_id: 会话 ID
+
+        Returns:
+            测试结果字典
+        """
+        from mobile_agent.core.agent_builder import build_test_agent
+        from mobile_agent.models.test_case import parse_test_case
+
+        # 1. 解析测试用例
+        test_case = parse_test_case(test_case_text)
+        logger.info("解析测试用例: %s, 共 %d 步", test_case.name, len(test_case.steps))
+
+        # 2. 构建测试 Agent
+        tools = self._mcp_manager.tools if self._mcp_manager else []
+        test_agent = build_test_agent(
+            tools=tools,
+            llm_config=self._settings.llm,
+            test_case=test_case,
+            checkpointer=self._checkpointer,
+        )
+
+        # 3. 执行
+        initial_message = f"开始执行测试用例: {test_case.name}"
+        config = {"configurable": {"thread_id": conversation_id}}
+        result = await test_agent.ainvoke(
+            {"messages": [HumanMessage(content=initial_message)]},
+            config=config,
+        )
+
+        # 4. 提取测试结果
+        return {
+            "test_case": test_case.name,
+            "phase": result.get("test_phase"),
+            "passed": result.get("verification_passed", False),
+            "step_results": result.get("step_results", []),
+            "total_steps": len(test_case.steps),
+        }
+
+    async def run_test_case_stream(
+        self,
+        *,
+        test_case_text: str,
+        conversation_id: str,
+    ):
+        """流式执行测试用例，逐步返回事件
+
+        Args:
+            test_case_text: 用户原始输入的测试用例文本
+            conversation_id: 会话 ID
+
+        Yields:
+            Agent 流式消息事件
+        """
+        from mobile_agent.core.agent_builder import build_test_agent
+        from mobile_agent.models.test_case import parse_test_case
+
+        # 1. 解析测试用例
+        test_case = parse_test_case(test_case_text)
+        logger.info("流式执行测试用例: %s, 共 %d 步", test_case.name, len(test_case.steps))
+
+        # 2. 构建测试 Agent
+        tools = self._mcp_manager.tools if self._mcp_manager else []
+        test_agent = build_test_agent(
+            tools=tools,
+            llm_config=self._settings.llm,
+            test_case=test_case,
+            checkpointer=self._checkpointer,
+        )
+
+        # 3. 流式执行
+        initial_message = f"开始执行测试用例: {test_case.name}"
+        config = {"configurable": {"thread_id": conversation_id}}
+
+        async for event in test_agent.astream(
+            {"messages": [HumanMessage(content=initial_message)]},
+            config=config,
+            stream_mode="messages",
+        ):
+            yield event
+
     async def reconnect_mcp(self) -> dict[str, Any]:
         """重新连接 MCP Server
 

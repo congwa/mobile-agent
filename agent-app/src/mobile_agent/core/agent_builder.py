@@ -76,6 +76,62 @@ def build_mobile_agent(
     return agent
 
 
+def build_test_agent(
+    tools: list[BaseTool],
+    llm_config: LLMConfig,
+    test_case: Any,
+    *,
+    checkpointer: Any | None = None,
+) -> Any:
+    """构建测试执行专用 Agent
+
+    使用 TestExecutorMiddleware 状态机驱动测试步骤的逐步执行。
+
+    Args:
+        tools: MCP 适配器获取的 LangChain BaseTool 列表
+        llm_config: LLM 配置
+        test_case: 解析后的 TestCase 实例
+        checkpointer: 会话记忆检查点器
+
+    Returns:
+        编译好的 LangGraph CompiledStateGraph（Agent 实例）
+    """
+    from mobile_agent.middleware.test_executor import TestExecutorMiddleware
+    from mobile_agent.prompts.test_prompt import build_test_system_prompt
+
+    # 测试专用中间件链
+    middlewares: list[AgentMiddleware] = [
+        TestExecutorMiddleware(test_case),   # 核心：状态机
+        OperationLoggerMiddleware(),          # 操作日志
+        RetryMiddleware(max_retries=1),       # 重试（测试场景减少次数）
+    ]
+
+    # 测试专用 system prompt
+    system_prompt = build_test_system_prompt(test_case)
+
+    if checkpointer is None:
+        msg = "checkpointer 不能为 None，请传入 AsyncSqliteSaver 或 MemorySaver"
+        raise ValueError(msg)
+
+    logger.info(
+        "构建测试 Agent: model=%s, tools=%d, test_case=%s, steps=%d",
+        llm_config.model, len(tools), test_case.name, len(test_case.steps),
+    )
+
+    model_instance = _create_model_instance(llm_config)
+
+    agent = create_agent(
+        model=model_instance,
+        tools=tools,
+        system_prompt=system_prompt,
+        middleware=middlewares,
+        checkpointer=checkpointer,
+    )
+
+    logger.info("测试 Agent 构建完成")
+    return agent
+
+
 def _create_model_instance(llm_config: LLMConfig) -> Any:
     """使用 langgraph-agent-kit 的 create_chat_model 统一创建模型实例"""
     model_str = llm_config.model
