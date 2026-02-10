@@ -98,9 +98,29 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         }
 
         // 通过 timelineReducer 处理所有事件
-        set((s) => ({
-          timelineState: timelineReducer(s.timelineState, event),
-        }));
+        set((s) => {
+          let state = timelineReducer(s.timelineState, event);
+
+          // tool.end 后注入 screenshot_id（SDK reducer 不处理此自定义字段）
+          if (event.type === "tool.end") {
+            const payload = event.payload as { tool_call_id?: string; screenshot_id?: string };
+            const screenshotId = payload.screenshot_id;
+            const toolCallId = payload.tool_call_id;
+            if (screenshotId && toolCallId) {
+              const idx = state.indexById[toolCallId];
+              if (idx !== undefined) {
+                const timeline = [...state.timeline];
+                const item = timeline[idx];
+                if (item && item.type === "tool.call") {
+                  timeline[idx] = { ...item, screenshot_id: screenshotId } as typeof item;
+                  state = { ...state, timeline };
+                }
+              }
+            }
+          }
+
+          return { timelineState: state };
+        });
       }
 
       // 流结束
@@ -124,9 +144,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   stopStreaming: () => {
-    const { _client, timelineState } = get();
+    const { _client, timelineState, conversationId } = get();
     if (_client) {
       _client.abort();
+      // 显式通知后端取消 Agent 任务（防止手机继续执行操作）
+      if (conversationId) {
+        api.abortChat(conversationId).catch(() => {});
+      }
       const turnId = timelineState.activeTurn.turnId;
       if (turnId) {
         set((s) => ({

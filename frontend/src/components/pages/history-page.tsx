@@ -8,6 +8,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/utils/tailwind";
+import { Markdown } from "@/components/ui/markdown";
 import { useHistoryStore } from "@/stores/history-store";
 import type { ConversationMessage } from "@/lib/api";
 
@@ -194,7 +195,9 @@ function SessionMessageBubble({ message }: { message: ConversationMessage }) {
     return (
       <div className="flex justify-start">
         <div className="max-w-[70%] rounded-2xl rounded-bl-md bg-secondary border border-border px-4 py-2.5">
-          <p className="text-sm text-foreground whitespace-pre-wrap">{message.content}</p>
+          <Markdown className="prose prose-sm dark:prose-invert max-w-none text-sm text-foreground">
+            {message.content}
+          </Markdown>
           {message.timestamp && (
             <p className="mt-1 text-[10px] text-muted-foreground">{message.timestamp}</p>
           )}

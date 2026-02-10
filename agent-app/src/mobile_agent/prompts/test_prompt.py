@@ -114,23 +114,13 @@ def build_step_prompt(
     total = len(test_case.steps)
     progress_bar = _build_progress_bar(index, total)
 
-    return f"""你正在执行测试用例「{test_case.name}」。
+    return f"""{progress_bar} 步骤 {index + 1}/{total}「{test_case.name}」
 
-## 进度: {progress_bar} ({index + 1}/{total})
-
-## 当前步骤 (第 {index + 1} 步)
 {step.raw_text}
 
-## 具体指令
 {instruction}
 
-## 规则（必须严格遵守）
-- **你必须调用上述指定的 MCP 工具**，不能只用文字描述操作，必须实际发起 tool_call
-- 只执行当前步骤，不要跳步或提前执行后续步骤
-- 只调用一次工具即可，不要重复调用
-- 执行完后等待系统确认结果再继续
-- 如果操作失败，如实报告错误原因，不要自行重试
-- 禁止回复类似"我已完成"而不调用工具的情况"""
+只调用一个工具，执行完等待系统确认。"""
 
 
 def build_test_system_prompt(test_case: TestCase) -> str:
@@ -150,31 +140,17 @@ def build_test_system_prompt(test_case: TestCase) -> str:
         f"  - {v}" for v in test_case.verifications
     )
 
-    return f"""你是一个移动端自动化测试执行 Agent。你通过 MCP 工具控制真实的手机设备，按步骤执行测试用例。
+    return f"""你是移动端自动化测试 Agent，通过 MCP 工具控制真实手机设备。
 
-## 测试用例信息
-- 测试名称: {test_case.name}
-- App包名: {test_case.app_package}
-- 设备序列号: {test_case.device_serial}
+测试: {test_case.name} | App: {test_case.app_package} | 设备: {test_case.device_serial}
 
-## 测试步骤
+步骤:
 {steps_desc}
 
-## 验证点
+验证点:
 {verifications_desc}
 
-## 执行原则
-1. **严格按步骤顺序执行** — 每次只执行系统指定的当前步骤
-2. **每步只调用一次 MCP 工具** — 不要在一步中调用多个工具
-3. **优先使用 mobile_click_by_text** — 通过文本精确匹配点击元素
-4. **遇到弹窗优先关闭** — 调用 mobile_close_popup
-5. **操作失败如实报告** — 不要盲目重试，等待系统决策
-
-## 点击优先级
-1. mobile_click_by_text — 最推荐，通过文本精确匹配
-2. mobile_click_by_id — resource-id 精确匹配
-3. mobile_click_by_som — 配合 SoM 截图，通过编号点击
-4. mobile_click_by_percent — 百分比坐标，最后手段"""
+每步只调用一个工具，按系统指令顺序执行，失败如实报告。"""
 
 
 def build_setup_prompt(test_case: TestCase) -> str:
@@ -190,19 +166,13 @@ def build_setup_prompt(test_case: TestCase) -> str:
         f"  - {p}" for p in test_case.preconditions
     )
 
-    return f"""你正在准备执行测试用例「{test_case.name}」。
+    return f"""测试用例「{test_case.name}」，App包名: `{test_case.app_package}`
 
-## 前置条件
+前置条件:
 {preconditions}
 
-## 设备信息
-- App包名: {test_case.app_package}
-- 设备序列号: {test_case.device_serial}
-
-## 任务
-请确认设备已连接，App 已安装并处于正确状态。
-你可以调用 mobile_list_devices 检查设备状态。
-确认就绪后，回复「前置检查完成」即可开始测试。"""
+调用工具检查前置条件，然后回复：`前置条件满足` 或 `前置条件不满足：<原因>`。
+不要尝试修复不满足的条件。"""
 
 
 def build_report_prompt(

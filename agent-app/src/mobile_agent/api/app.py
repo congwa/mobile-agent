@@ -12,9 +12,20 @@ from mobile_agent.api.chat import router as chat_router
 from mobile_agent.api.conversations import router as conversations_router
 from mobile_agent.api.devices import router as devices_router
 from mobile_agent.api.settings import router as settings_router
-from mobile_agent.api.test import router as test_router
 from mobile_agent.core.config import get_settings
 from mobile_agent.core.service import get_agent_service
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s [%(name)s] %(message)s",
+)
+# 降低第三方库的日志级别，避免过于嘈杂
+for _noisy in (
+    "httpcore", "httpx", "openai", "urllib3", "asyncio",
+    "aiosqlite", "mcp", "mcp.client", "mcp.client.sse",
+    "langgraph", "langchain", "langchain_core",
+):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +74,6 @@ def create_app() -> FastAPI:
     app.include_router(devices_router)
     app.include_router(conversations_router)
     app.include_router(settings_router)
-    app.include_router(test_router)
 
     return app
 

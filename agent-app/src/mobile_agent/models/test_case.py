@@ -33,6 +33,13 @@ class TestAction(str, Enum):
     LAUNCH_APP = "launch_app"                  # → mobile_launch_app
 
 
+# 工具配置已迁移至 tool_config.py，统一管理
+from mobile_agent.models.tool_config import (  # noqa: E402
+    get_all_priority_tools,
+    get_tool_priority_chain,
+)
+
+
 class StepStatus(str, Enum):
     """步骤执行状态"""
     PENDING = "pending"
@@ -53,6 +60,7 @@ class TestStep:
     status: StepStatus = StepStatus.PENDING
     result: str = ""                            # 执行结果描述
     mcp_tool_hint: str = ""                     # 对应的 MCP 工具名提示
+    tool_fallback_chain: list[list[str]] = field(default_factory=list)  # 工具优先级降级链
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -215,6 +223,7 @@ def _parse_step(index: int, raw_text: str) -> TestStep:
                 target=info.get("target", ""),
                 params=info.get("params", {}),
                 mcp_tool_hint=info.get("mcp_tool_hint", ""),
+                tool_fallback_chain=get_tool_priority_chain(action.value),
             )
 
     # 未匹配到任何模式，默认作为点击操作
@@ -225,6 +234,7 @@ def _parse_step(index: int, raw_text: str) -> TestStep:
         target=text,
         params={},
         mcp_tool_hint="mobile_click_by_text",
+        tool_fallback_chain=get_tool_priority_chain("click"),
     )
 
 

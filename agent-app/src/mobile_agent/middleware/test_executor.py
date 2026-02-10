@@ -28,6 +28,14 @@ from langgraph.runtime import Runtime
 from typing_extensions import NotRequired
 
 from mobile_agent.models.test_case import TestCase
+from mobile_agent.models.tool_config import (
+    ACTIONS_WITH_GROUP_FALLBACK,
+    GROUP_PRIORITY,
+    SETUP_ALLOWED_TOOLS,
+    get_group_at_priority,
+    get_max_priority_for_action,
+    get_tools_for_step,
+)
 from mobile_agent.prompts.test_prompt import (
     build_report_prompt,
     build_setup_prompt,
@@ -76,6 +84,9 @@ class TestExecutionState(AgentState[Any]):
 
     step_retry_count: Annotated[NotRequired[int], OmitFromInput]
     """当前步骤重试次数"""
+
+    current_tool_priority_idx: Annotated[NotRequired[int], OmitFromInput]
+    """当前步骤的工具优先级索引（0=最高优先级）"""
 
 
 # ── 错误关键词 ───────────────────────────────────────────
@@ -146,35 +157,103 @@ class TestExecutorMiddleware(AgentMiddleware):
         phase = state.get("test_phase", "idle")
         step_idx = state.get("current_step_index", 0)
 
+        # 强制每轮只允许一个 tool_call（API 层面限制）
+        no_parallel = {**request.model_settings, "parallel_tool_calls": False}
+
         if phase == TestPhase.SETUP.value:
             step_prompt = build_setup_prompt(self._test_case)
             combined = self._combine_system_message(request, step_prompt)
-            updated = request.override(system_message=combined)
-            logger.info("TestExecutor: [SETUP] 注入前置检查 prompt")
+
+            # SETUP 工具集：从 tool_config.py 统一配置
+            setup_tools = [
+                t for t in request.tools
+                if (getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else "")) in SETUP_ALLOWED_TOOLS
+            ]
+
+            overrides: dict[str, Any] = {
+                "system_message": combined,
+                "model_settings": no_parallel,
+            }
+            if setup_tools:
+                overrides["tools"] = setup_tools
+
+            updated = request.override(**overrides)
+            final_names = [
+                getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else "?")
+                for t in updated.tools
+            ]
+            logger.info(
+                "TestExecutor: [SETUP] 注入前置检查 prompt (工具: %s, 原始: %d)",
+                final_names, len(request.tools),
+            )
             return await handler(updated)
 
         if phase == TestPhase.EXECUTING.value and step_idx < len(self._test_case.steps):
             current_step = self._test_case.steps[step_idx]
             step_prompt = build_step_prompt(current_step, step_idx, self._test_case)
             combined = self._combine_system_message(request, step_prompt)
-            updated = request.override(system_message=combined)
+
+            # 基于交互范式的工具注入
+            tool_priority_idx = state.get("current_tool_priority_idx", 0)
+            action = current_step.action.value
+            allowed_names = get_tools_for_step(action, tool_priority_idx)
+
+            # 从 request.tools 中筛选允许的工具
+            filtered_tools = [
+                t for t in request.tools
+                if (getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else "")) in allowed_names
+            ]
+
+            overrides_exec: dict[str, Any] = {
+                "system_message": combined,
+                "model_settings": no_parallel,
+            }
+            if filtered_tools:
+                overrides_exec["tools"] = filtered_tools
+
+            updated = request.override(**overrides_exec)
+
+            # 日志
+            group_name = get_group_at_priority(tool_priority_idx) if action in ACTIONS_WITH_GROUP_FALLBACK else "hint"
+            injected_names = [
+                getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else "?")
+                for t in updated.tools
+            ]
             logger.info(
-                "TestExecutor: [EXECUTING] 步骤 %d/%d - %s %s",
+                "TestExecutor: [EXECUTING] 步骤 %d/%d - %s「%s」\n"
+                "  范式组: %s (优先级 %d/%d)\n"
+                "  注入工具: %s (共 %d 个, 原始 %d 个)",
                 step_idx + 1,
                 len(self._test_case.steps),
-                current_step.action.value,
-                current_step.target,
+                action,
+                current_step.target or current_step.raw_text,
+                group_name,
+                tool_priority_idx,
+                get_max_priority_for_action(action),
+                injected_names,
+                len(updated.tools),
+                len(request.tools),
             )
+            return await handler(updated)
+
+        if phase == TestPhase.VERIFYING.value:
+            # 验证阶段：LLM 只需分析已有工具结果，不允许调用新工具
+            updated = request.override(
+                tools=[], model_settings=no_parallel,
+            )
+            logger.info("TestExecutor: [VERIFYING] 工具清空，仅分析已有结果")
             return await handler(updated)
 
         if phase in (TestPhase.COMPLETED.value, TestPhase.FAILED.value):
             step_prompt = build_report_prompt(self._test_case, dict(state))
             combined = self._combine_system_message(request, step_prompt)
-            updated = request.override(system_message=combined)
-            logger.info("TestExecutor: [%s] 注入报告生成 prompt", phase.upper())
+            updated = request.override(
+                system_message=combined, tools=[], model_settings=no_parallel,
+            )
+            logger.info("TestExecutor: [%s] 注入报告生成 prompt (工具清空，仅生成文本)", phase.upper())
             return await handler(updated)
 
-        return await handler(request)
+        return await handler(request.override(model_settings=no_parallel))
 
     def _combine_system_message(
         self, request: ModelRequest, step_prompt: str,
@@ -209,33 +288,149 @@ class TestExecutorMiddleware(AgentMiddleware):
         # 获取最后一条 AIMessage
         last_ai = self._get_last_ai_message(messages)
 
-        # ── SETUP → EXECUTING ────────────────────────
+        # ── 同工具去重：LLM 可能对同一个工具发起多次并行调用，只保留每个工具的第一次
+        if last_ai and getattr(last_ai, "tool_calls", None) and len(last_ai.tool_calls) > 1:
+            seen: set[str] = set()
+            deduped: list[dict] = []
+            for tc in last_ai.tool_calls:
+                name = tc.get("name", "")
+                if name not in seen:
+                    seen.add(name)
+                    deduped.append(tc)
+            if len(deduped) < len(last_ai.tool_calls):
+                removed_count = len(last_ai.tool_calls) - len(deduped)
+                logger.info(
+                    "TestExecutor: 同工具去重: %d → %d (移除 %d 个重复调用, 保留: %s)",
+                    len(last_ai.tool_calls), len(deduped), removed_count,
+                    [tc.get("name") for tc in deduped],
+                )
+                last_ai.tool_calls = deduped
+                if hasattr(last_ai, "additional_kwargs") and last_ai.additional_kwargs:
+                    ak = last_ai.additional_kwargs
+                    if "tool_calls" in ak:
+                        ak_seen: set[str] = set()
+                        ak_deduped = []
+                        for tc in ak["tool_calls"]:
+                            fname = tc.get("function", {}).get("name", "")
+                            if fname not in ak_seen:
+                                ak_seen.add(fname)
+                                ak_deduped.append(tc)
+                        ak["tool_calls"] = ak_deduped
+
+        # ── SETUP: 前置条件检查（严格模式）────────────
+        #
+        # 策略：让 LLM 检查前置条件是否满足。
+        # - 满足 → 进入 EXECUTING
+        # - 不满足 → 直接 FAILED，不尝试修复
         if phase == TestPhase.SETUP.value:
-            first_step = self._test_case.steps[0]
-            logger.info("TestExecutor: SETUP -> EXECUTING")
+            logger.info(
+                "TestExecutor: [SETUP] 进入 aafter_model, 消息数: %d, "
+                "last_ai: %s, has_tool_calls: %s",
+                len(messages),
+                type(last_ai).__name__ if last_ai else None,
+                bool(last_ai and getattr(last_ai, "tool_calls", None)),
+            )
+
+            # 情况 1：LLM 发起了工具调用（检查设备状态等）→ 让工具执行
+            if last_ai and getattr(last_ai, "tool_calls", None):
+                logger.info(
+                    "TestExecutor: [SETUP] LLM 调用了工具 %s，让工具执行",
+                    [tc.get("name") for tc in last_ai.tool_calls],
+                )
+                return None  # → tools_node → 执行工具 → 回到 model
+
+            # 情况 2：LLM 无 tool_calls → 检查工具结果判断前置条件
+            # 在最近消息中查找 ToolMessage 和 AIMessage 的内容
+            recent_types = [
+                (type(m).__name__, str(getattr(m, 'content', ''))[:100])
+                for m in messages[-10:]
+            ]
+            has_tool_msg = any(isinstance(m, ToolMessage) for m in messages[-10:])
+            logger.info(
+                "TestExecutor: [SETUP] 检查工具结果, has_tool_msg: %s\n"
+                "  最近 %d 条消息类型: %s",
+                has_tool_msg,
+                min(10, len(messages)),
+                recent_types,
+            )
+
+            if has_tool_msg:
+                # 检查工具结果 + LLM 回复中是否明确表示前置条件不满足
+                precondition_failed = self._check_precondition_failed(messages)
+                logger.info(
+                    "TestExecutor: [SETUP] _check_precondition_failed 结果: %s",
+                    precondition_failed,
+                )
+                if precondition_failed:
+                    logger.error(
+                        "TestExecutor: 前置条件不满足 -> FAILED: %s",
+                        precondition_failed,
+                    )
+                    return {
+                        "test_phase": TestPhase.FAILED.value,
+                        "step_results": [{
+                            "index": -1,
+                            "action": "precondition_check",
+                            "target": "",
+                            "raw_text": precondition_failed,
+                            "passed": False,
+                        }],
+                        "jump_to": "end",
+                    }
+
+                # 前置条件满足，进入 EXECUTING
+                first_step = self._test_case.steps[0]
+                logger.info(
+                    "TestExecutor: SETUP -> EXECUTING（前置条件已验证）\n"
+                    "  前置条件: %s\n"
+                    "  第一步: %s (工具: %s)",
+                    self._test_case.preconditions,
+                    first_step.raw_text,
+                    first_step.mcp_tool_hint,
+                )
+                return {
+                    "test_phase": TestPhase.EXECUTING.value,
+                    "current_step_index": 0,
+                    "step_retry_count": 0,
+                    "jump_to": "model",
+                    "messages": [HumanMessage(content=(
+                        f"前置条件已满足。现在开始执行步骤 1: {first_step.raw_text}\n"
+                        f"请立即调用 {first_step.mcp_tool_hint} 工具执行此操作。"
+                    ))],
+                }
+
+            # 情况 3：LLM 既没调用工具也没有 ToolMessage
+            setup_retry = state.get("step_retry_count", 0)
+            if setup_retry >= self.MAX_STEP_RETRIES:
+                # 重试耗尽，LLM 始终未调用工具检查 -> FAILED
+                logger.error("TestExecutor: SETUP 重试耗尽，LLM 未执行前置检查 -> FAILED")
+                return {
+                    "test_phase": TestPhase.FAILED.value,
+                    "step_results": [{
+                        "index": -1,
+                        "action": "precondition_check",
+                        "target": "",
+                        "raw_text": "无法执行前置条件检查（LLM 未调用工具）",
+                        "passed": False,
+                    }],
+                    "jump_to": "end",
+                }
+
+            logger.info(
+                "TestExecutor: [SETUP] LLM 未调用工具，提醒检查前置条件 (%d/%d)",
+                setup_retry + 1, self.MAX_STEP_RETRIES,
+            )
             return {
-                "test_phase": TestPhase.EXECUTING.value,
-                "current_step_index": 0,
+                "step_retry_count": setup_retry + 1,
                 "jump_to": "model",
                 "messages": [HumanMessage(content=(
-                    f"前置检查完成。现在开始执行步骤 1: {first_step.raw_text}\n"
-                    f"请立即调用 {first_step.mcp_tool_hint} 工具执行此操作。"
+                    "你必须调用 MCP 工具检查前置条件是否满足，不能只用文字回复。\n"
+                    "请调用相应的 MCP 工具检查前置条件。"
                 ))],
             }
 
         # ── EXECUTING ────────────────────────────────
         if phase == TestPhase.EXECUTING.value:
-            # 情况 1：LLM 刚发起了工具调用 → 让正常流程执行工具
-            if last_ai and getattr(last_ai, "tool_calls", None):
-                logger.info(
-                    "TestExecutor: 步骤 %d - LLM 调用了工具 %s，等待执行",
-                    step_idx + 1,
-                    [tc.get("name") for tc in last_ai.tool_calls],
-                )
-                return None  # 正常流程：→ tools_node → 执行工具 → 回到 model
-
-            # 情况 2：LLM 无 tool_calls
-            # 可能是：(a) 工具已执行完的后续回合  (b) LLM 未调用工具
             if step_idx >= len(self._test_case.steps):
                 return {
                     "test_phase": TestPhase.VERIFYING.value,
@@ -244,34 +439,114 @@ class TestExecutorMiddleware(AgentMiddleware):
                 }
 
             step = self._test_case.steps[step_idx]
+            action = step.action.value
+            tool_priority_idx = state.get("current_tool_priority_idx", 0)
+            max_priority = get_max_priority_for_action(action)
+
+            # ── 情况 1：LLM 发起了工具调用 ──────────────
+            if last_ai and getattr(last_ai, "tool_calls", None):
+                group_name = get_group_at_priority(tool_priority_idx) if action in ACTIONS_WITH_GROUP_FALLBACK else "hint"
+                logger.info(
+                    "TestExecutor: 步骤 %d - LLM 调用工具 %s (范式: %s, 优先级 %d)，等待执行",
+                    step_idx + 1,
+                    [tc.get("name") for tc in last_ai.tool_calls],
+                    group_name,
+                    tool_priority_idx,
+                )
+                return None  # → tools_node → 执行工具 → 回到 model
+
+            # ── 情况 2：LLM 无 tool_calls（工具已执行完的回合）──
             has_tool_result = self._check_step_result(messages, step)
             retry_count = state.get("step_retry_count", 0)
 
             if not has_tool_result:
+                tool_error = self._get_last_tool_error(messages)
+
+                if tool_error:
+                    # 工具执行失败 → 尝试降级到下一交互范式组
+                    if action in ACTIONS_WITH_GROUP_FALLBACK and tool_priority_idx + 1 < max_priority:
+                        next_priority = tool_priority_idx + 1
+                        current_group = get_group_at_priority(tool_priority_idx) or "?"
+                        next_group = get_group_at_priority(next_priority) or "?"
+                        logger.warning(
+                            "TestExecutor: 步骤 %d [%s] 工具执行失败，范式降级\n"
+                            "  错误: %s\n"
+                            "  %s (优先级 %d) → %s (优先级 %d)",
+                            step_idx + 1, action,
+                            tool_error[:300],
+                            current_group, tool_priority_idx,
+                            next_group, next_priority,
+                        )
+
+                        if next_group == "som":
+                            fallback_instruction = (
+                                f"上一个工具执行失败: {tool_error[:200]}\n"
+                                f"请改用 SoM 方式：先调用 mobile_screenshot_with_som 获取标注截图，"
+                                f"然后根据截图中的编号调用 mobile_click_by_som 点击目标。\n"
+                                f"目标: {step.raw_text}"
+                            )
+                        elif next_group == "coordinate":
+                            fallback_instruction = (
+                                f"上一个工具执行失败: {tool_error[:200]}\n"
+                                f"请改用坐标方式：先调用 mobile_screenshot_with_grid 获取网格截图，"
+                                f"然后通过坐标工具操作。\n"
+                                f"目标: {step.raw_text}"
+                            )
+                        else:
+                            fallback_instruction = (
+                                f"上一个工具执行失败: {tool_error[:200]}\n"
+                                f"请使用其他方式执行步骤 {step_idx + 1}: {step.raw_text}"
+                            )
+                        return {
+                            "current_tool_priority_idx": next_priority,
+                            "step_retry_count": 0,
+                            "jump_to": "model",
+                            "messages": [HumanMessage(content=fallback_instruction)],
+                        }
+
+                    # 无更多降级选项 → FAILED
+                    logger.error(
+                        "TestExecutor: 步骤 %d [%s] 所有范式组用尽 -> FAILED: %s",
+                        step_idx + 1, action, tool_error[:200],
+                    )
+                    step_results = list(state.get("step_results", []))
+                    step_results.append({
+                        "index": step_idx,
+                        "action": action,
+                        "target": step.target,
+                        "raw_text": step.raw_text,
+                        "passed": False,
+                    })
+                    return {
+                        "test_phase": TestPhase.FAILED.value,
+                        "step_results": step_results,
+                        "jump_to": "end",
+                    }
+
                 # LLM 未调用工具，尝试重试
                 if retry_count < self.MAX_STEP_RETRIES:
                     logger.warning(
                         "TestExecutor: 步骤 %d [%s] LLM 未调用工具，重试 %d/%d",
-                        step_idx + 1, step.action.value,
+                        step_idx + 1, action,
                         retry_count + 1, self.MAX_STEP_RETRIES,
                     )
                     return {
                         "step_retry_count": retry_count + 1,
                         "jump_to": "model",
                         "messages": [HumanMessage(content=(
-                            f"你没有调用工具。请立即调用 {step.mcp_tool_hint} 工具执行步骤 {step_idx + 1}: {step.raw_text}\n"
-                            f"你必须发起实际的 tool_call，不能只用文字回复。"
+                            f"你没有调用工具。请立即调用工具执行步骤 {step_idx + 1}: {step.raw_text}\n"
+                            f"你必须发起实际的 tool_call，不能只用文字回复。只调用一个工具。"
                         ))],
                     }
                 # 重试耗尽，失败
                 logger.error(
                     "TestExecutor: 步骤 %d [%s] 重试 %d 次后仍未调用工具，失败",
-                    step_idx + 1, step.action.value, self.MAX_STEP_RETRIES,
+                    step_idx + 1, action, self.MAX_STEP_RETRIES,
                 )
                 step_results = list(state.get("step_results", []))
                 step_results.append({
                     "index": step_idx,
-                    "action": step.action.value,
+                    "action": action,
                     "target": step.target,
                     "raw_text": step.raw_text,
                     "passed": False,
@@ -282,7 +557,7 @@ class TestExecutorMiddleware(AgentMiddleware):
                     "jump_to": "end",
                 }
 
-            # 工具调用成功，记录结果
+            # ── 工具调用成功 → 推进步骤 ──────────────────
             step_results = list(state.get("step_results", []))
             step_results.append({
                 "index": step_idx,
@@ -305,20 +580,22 @@ class TestExecutorMiddleware(AgentMiddleware):
                     "step_results": step_results,
                     "current_step_index": next_idx,
                     "step_retry_count": 0,
+                    "current_tool_priority_idx": 0,
                     "jump_to": "model",
                     "messages": [HumanMessage(content="所有步骤已执行完毕。请进行最终验证。")],
                 }
 
-            # 推进到下一步
+            # 推进到下一步（重置优先级索引）
             next_step = self._test_case.steps[next_idx]
             return {
                 "current_step_index": next_idx,
                 "step_results": step_results,
                 "step_retry_count": 0,
+                "current_tool_priority_idx": 0,
                 "jump_to": "model",
                 "messages": [HumanMessage(content=(
                     f"步骤 {step_idx + 1} 已完成。现在执行步骤 {next_idx + 1}: {next_step.raw_text}\n"
-                    f"请立即调用 {next_step.mcp_tool_hint} 工具执行此操作。"
+                    f"请立即调用 {next_step.mcp_tool_hint} 工具执行此操作。只调用一个工具。"
                 ))],
             }
 
@@ -352,6 +629,7 @@ class TestExecutorMiddleware(AgentMiddleware):
             if isinstance(msg, AIMessage):
                 return msg
         return None
+
 
     # ── aafter_agent: 测试报告 ───────────────────────
 
@@ -400,6 +678,133 @@ class TestExecutorMiddleware(AgentMiddleware):
             return False
 
         return True
+
+    def _check_precondition_failed(self, messages: list) -> str | None:
+        """检查前置条件是否不满足
+
+        分析最近的 ToolMessage 和 AIMessage 内容，判断前置条件是否未满足。
+
+        Returns:
+            失败原因字符串（如果不满足），None 如果满足
+        """
+        recent = messages[-10:] if len(messages) > 10 else messages
+
+        # 收集工具结果和 LLM 回复
+        tool_contents: list[str] = []
+        ai_contents: list[str] = []
+
+        for msg in recent:
+            if isinstance(msg, ToolMessage):
+                tool_contents.append(str(msg.content))
+            elif isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
+                ai_contents.append(str(msg.content))
+
+        all_content = " ".join(tool_contents + ai_contents).lower()
+
+        logger.info(
+            "TestExecutor: [_check_precondition_failed] 分析数据:\n"
+            "  前置条件列表: %s\n"
+            "  App包名: %s\n"
+            "  ToolMessage 数: %d, 内容摘要: %s\n"
+            "  AIMessage 数: %d, 内容摘要: %s",
+            self._test_case.preconditions,
+            self._test_case.app_package,
+            len(tool_contents),
+            [c[:150] for c in tool_contents],
+            len(ai_contents),
+            [c[:150] for c in ai_contents],
+        )
+
+        # ── 优先级 1：LLM 明确判断 ────────────────────
+        # SETUP prompt 要求 LLM 输出 "前置条件满足" 或 "前置条件不满足：原因"
+        ai_text = " ".join(ai_contents).lower()
+
+        fail_keywords = [
+            "前置条件不满足", "不满足", "未满足", "not met",
+            "precondition failed", "前置条件失败",
+        ]
+        matched_fail = [kw for kw in fail_keywords if kw in ai_text]
+        if matched_fail:
+            # 提取原因（取 LLM 最后一条消息的完整内容）
+            reason = ai_contents[-1][:300] if ai_contents else str(matched_fail)
+            logger.info(
+                "TestExecutor: [_check_precondition_failed] LLM 明确判断不满足: %s",
+                matched_fail,
+            )
+            return f"前置条件不满足（LLM 判断）: {reason}"
+
+        pass_keywords = ["前置条件满足", "precondition met", "preconditions met"]
+        if any(kw in ai_text for kw in pass_keywords):
+            # LLM 明确说满足 → 检查是否有"不"字在前面（避免误判）
+            if not matched_fail:
+                logger.info("TestExecutor: [_check_precondition_failed] LLM 明确判断满足")
+                return None
+
+        # ── 优先级 2：工具结果关键词检测（兜底）────────
+        tool_combined = " ".join(c.lower() for c in tool_contents)
+
+        for precondition in self._test_case.preconditions:
+            pre_lower = precondition.lower()
+
+            # 「App 处于关闭状态」
+            if "关闭" in pre_lower or "关闭状态" in pre_lower:
+                # 检查 1：包名出现在工具输出中
+                pkg = self._test_case.app_package.lower()
+                pkg_found = pkg and pkg in tool_combined
+                logger.info(
+                    "TestExecutor: [_check_precondition_failed] 检查「%s」:\n"
+                    "  包名检查: pkg='%s', found_in_tool_output=%s",
+                    precondition, pkg, pkg_found,
+                )
+                if pkg_found:
+                    return f"前置条件「{precondition}」不满足：检测到 {self._test_case.app_package} 正在前台运行"
+
+                # 检查 2：运行状态关键词
+                running_indicators = [
+                    "running", "foreground", "正在运行", "已启动",
+                    "is running", "already running", "活动中",
+                ]
+                matched_indicators = [ind for ind in running_indicators if ind in all_content]
+                if matched_indicators:
+                    logger.info(
+                        "TestExecutor: [_check_precondition_failed] 运行关键词匹配: %s",
+                        matched_indicators,
+                    )
+                    return f"前置条件「{precondition}」不满足：App 正在运行 (匹配: {matched_indicators})"
+
+            # 「App 已打开」
+            if "已打开" in pre_lower or "打开状态" in pre_lower:
+                not_running_indicators = [
+                    "not running", "not found", "未运行", "未启动",
+                    "stopped", "已停止",
+                ]
+                matched = [ind for ind in not_running_indicators if ind in all_content]
+                if matched:
+                    logger.info(
+                        "TestExecutor: [_check_precondition_failed] 未运行关键词匹配: %s",
+                        matched,
+                    )
+                    return f"前置条件「{precondition}」不满足：App 未运行 (匹配: {matched})"
+
+        logger.info("TestExecutor: [_check_precondition_failed] 所有检查通过（关键词兜底未命中）")
+        return None
+
+    def _get_last_tool_error(self, messages: list) -> str | None:
+        """获取最近一条 ToolMessage 中的错误内容
+
+        Returns:
+            错误描述字符串（如果有错误），None 如果无错误
+        """
+        recent = messages[-10:] if len(messages) > 10 else messages
+
+        for msg in reversed(recent):
+            if isinstance(msg, ToolMessage):
+                content = str(msg.content)
+                if _is_error_content(content):
+                    return content[:500]
+                break  # 只检查最近一条 ToolMessage
+
+        return None
 
     def _check_verification(self, messages: list) -> bool:
         """检查验证点是否通过

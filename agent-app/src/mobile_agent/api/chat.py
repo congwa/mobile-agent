@@ -16,7 +16,7 @@ from langgraph_agent_kit import create_sse_response
 
 from mobile_agent.api.schemas import ChatRequest, StatusResponse
 from mobile_agent.core.service import get_agent_service
-from mobile_agent.streaming.orchestrator import MobileOrchestrator
+from mobile_agent.streaming.orchestrator import MobileOrchestrator, cancel_conversation
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -46,6 +46,20 @@ async def chat(request_data: ChatRequest):
     )
 
     return create_sse_response(orchestrator.run())
+
+
+@router.post("/chat/abort")
+async def abort_chat(request_data: dict):
+    """中止正在运行的 Agent 任务
+
+    前端点击停止按钮时调用，显式取消后台 Agent 执行。
+    """
+    conversation_id = request_data.get("conversation_id", "")
+    if not conversation_id:
+        raise HTTPException(status_code=400, detail="conversation_id 必填")
+
+    cancelled = cancel_conversation(conversation_id)
+    return {"cancelled": cancelled, "conversation_id": conversation_id}
 
 
 @router.get("/screenshot/{screenshot_id}")

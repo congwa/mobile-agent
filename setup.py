@@ -25,7 +25,7 @@ if requirements_file.exists():
 
 setup(
     name="mobile-mcp-ai",
-    version="2.7.12",  # 新增 hide_keyboard 工具，用于登录场景收起键盘确保协议复选框可点击
+    version="2.8.0",  # 工具范式重构：按交互范式分组注入，精简 prompt
     author="douzi",
     author_email="1492994674@qq.com",
     description="移动端自动化 MCP Server - 支持 Android/iOS，AI 功能可选（基础工具不需要 AI）",

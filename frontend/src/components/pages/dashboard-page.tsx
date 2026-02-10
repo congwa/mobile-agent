@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Play,
-  Search,
   Smartphone,
   CheckCircle2,
   XCircle,
@@ -9,25 +8,26 @@ import {
   ChevronDown,
   ChevronUp,
   Square,
-  Brain,
   FlaskConical,
-  ArrowRight,
   RotateCcw,
 } from "lucide-react";
 import { cn } from "@/utils/tailwind";
-import { api, type ParseTestResponse } from "@/lib/api";
+import { api } from "@/lib/api";
 import ConnectionIndicator from "@/components/layout/connection-indicator";
 import TopBar from "@/components/layout/top-bar";
 import { useAgentStore } from "@/stores/agent-store";
+import {
+  LLMCallCluster,
+  TimelineToolCallItem,
+  TimelineUserMessageItem,
+  TimelineErrorItem,
+} from "@/components/timeline";
 import type {
   TimelineItem,
-  UserMessageItem,
-  LLMCallClusterItem,
   ToolCallItem,
-  ErrorItem,
 } from "@embedease/chat-sdk";
 
-type TestPhase = "input" | "preview" | "running" | "done";
+type TestPhase = "input" | "running" | "done";
 
 const DEFAULT_TEST_CASE = `测试任务名称：测试 App 登录流程
 前置条件：App 处于关闭状态
@@ -42,9 +42,6 @@ com.im30.way`;
 
 export default function DashboardPage() {
   const [testCaseText, setTestCaseText] = useState(DEFAULT_TEST_CASE);
-  const [parsedResult, setParsedResult] = useState<ParseTestResponse | null>(null);
-  const [parseError, setParseError] = useState("");
-  const [parsing, setParsing] = useState(false);
   const [phase, setPhase] = useState<TestPhase>("input");
   const [devicePanelCollapsed, setDevicePanelCollapsed] = useState(false);
   const [logPanelCollapsed, setLogPanelCollapsed] = useState(false);
@@ -72,23 +69,6 @@ export default function DashboardPage() {
     }
   }, [isStreaming, phase, timeline.length]);
 
-  const handleParse = async () => {
-    const text = testCaseText.trim();
-    if (!text) return;
-    setParsing(true);
-    setParseError("");
-    setParsedResult(null);
-    try {
-      const result = await api.parseTestCase(text);
-      setParsedResult(result);
-      setPhase("preview");
-    } catch (err) {
-      setParseError(err instanceof Error ? err.message : "解析失败");
-    } finally {
-      setParsing(false);
-    }
-  };
-
   const handleExecute = () => {
     if (isStreaming || !testCaseText.trim()) return;
     newConversation();
@@ -98,8 +78,6 @@ export default function DashboardPage() {
 
   const handleReset = () => {
     newConversation();
-    setParsedResult(null);
-    setParseError("");
     setPhase("input");
   };
 
@@ -149,10 +127,9 @@ export default function DashboardPage() {
 
         {/* 主面板 */}
         <div className="flex flex-1 flex-col">
-          {/* 阶段：输入 / 预览 */}
-          {(phase === "input" || phase === "preview") && (
+          {/* 阶段：输入 */}
+          {phase === "input" && (
             <div className="flex flex-1 flex-col overflow-y-auto p-6">
-              {/* 测试用例输入 */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-3">
                   <FlaskConical className="h-5 w-5 text-primary" />
@@ -160,87 +137,59 @@ export default function DashboardPage() {
                 </div>
                 <textarea
                   value={testCaseText}
-                  onChange={(e) => {
-                    setTestCaseText(e.target.value);
-                    if (phase === "preview") setPhase("input");
-                  }}
+                  onChange={(e) => setTestCaseText(e.target.value)}
                   placeholder={`测试任务名称：...\n前置条件：...\n测试步骤：\n1. 打开App\n2. 点击xxx\n验证点：...\ncom.example.app`}
                   className="w-full resize-none rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors font-mono leading-relaxed"
                   rows={10}
                 />
-                {parseError && (
-                  <p className="mt-2 text-xs text-red-400">{parseError}</p>
-                )}
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3">
                   <button
-                    onClick={handleParse}
-                    disabled={!testCaseText.trim() || parsing}
-                    className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-4 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={handleExecute}
+                    disabled={!testCaseText.trim() || !status?.ready || isStreaming}
+                    className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {parsing ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Search className="h-3.5 w-3.5" />
-                    )}
-                    解析预览
+                    <Play className="h-3.5 w-3.5" />
+                    开始执行
                   </button>
-                  {phase === "preview" && parsedResult && (
-                    <button
-                      onClick={handleExecute}
-                      disabled={!status?.ready}
-                      className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Play className="h-3.5 w-3.5" />
-                      开始执行
-                    </button>
-                  )}
                 </div>
               </div>
-
-              {/* 解析预览 */}
-              {phase === "preview" && parsedResult && (
-                <TestCasePreview data={parsedResult} />
-              )}
             </div>
           )}
 
           {/* 阶段：运行中 / 完成 */}
           {(phase === "running" || phase === "done") && (
             <>
-              {/* 步骤预览摘要 */}
-              {parsedResult && (
-                <div className="border-b border-border bg-card/30 px-6 py-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FlaskConical className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium text-foreground">{parsedResult.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {parsedResult.steps.length} 步
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {phase === "running" && (
-                        <button
-                          onClick={stopStreaming}
-                          className="flex items-center gap-1.5 rounded-md bg-red-500/80 px-3 py-1.5 text-xs text-white hover:bg-red-500 transition-colors cursor-pointer"
-                        >
-                          <Square className="h-3 w-3" />
-                          停止
-                        </button>
-                      )}
-                      {phase === "done" && (
-                        <button
-                          onClick={handleReset}
-                          className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
-                        >
-                          <RotateCcw className="h-3 w-3" />
-                          新测试
-                        </button>
-                      )}
-                    </div>
+              {/* 测试摘要栏 */}
+              <div className="border-b border-border bg-card/30 px-6 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FlaskConical className="h-4 w-4 text-primary flex-shrink-0" />
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {testCaseText.split("\n")[0].replace(/^测试任务名称[：:]\s*/, "") || "测试执行中"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {phase === "running" && (
+                      <button
+                        onClick={stopStreaming}
+                        className="flex items-center gap-1.5 rounded-md bg-red-500/80 px-3 py-1.5 text-xs text-white hover:bg-red-500 transition-colors cursor-pointer"
+                      >
+                        <Square className="h-3 w-3" />
+                        停止
+                      </button>
+                    )}
+                    {phase === "done" && (
+                      <button
+                        onClick={handleReset}
+                        className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        新测试
+                      </button>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
 
               {/* 实时 Timeline */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -253,7 +202,7 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {timeline.map((item) => (
-                  <TimelineItemBubble key={item.id} item={item} />
+                  <TimelineItemBubble key={item.id} item={item} isStreaming={isStreaming} />
                 ))}
                 {isStreaming && timeline.length > 0 && (
                   <div className="flex justify-start">
@@ -295,68 +244,6 @@ export default function DashboardPage() {
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── 测试用例预览 ─────────────────────────────────────────────
-
-function TestCasePreview({ data }: { data: ParseTestResponse }) {
-  return (
-    <div className="rounded-lg border border-border bg-secondary/30 p-4">
-      <h3 className="text-sm font-semibold text-foreground mb-3">{data.name}</h3>
-
-      {data.preconditions.length > 0 && (
-        <div className="mb-3">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">前置条件</p>
-          <ul className="space-y-1">
-            {data.preconditions.map((p, i) => (
-              <li key={i} className="text-xs text-foreground/80">{p}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="mb-3">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">测试步骤</p>
-        <div className="space-y-1.5">
-          {data.steps.map((step) => (
-            <div key={step.index} className="flex items-center gap-2 text-xs">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-[10px] font-medium text-primary flex-shrink-0">
-                {step.index}
-              </span>
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary flex-shrink-0">
-                {step.action}
-              </span>
-              {step.target && (
-                <span className="text-foreground/80">{step.target}</span>
-              )}
-              <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-              <span className="font-mono text-[10px] text-muted-foreground">{step.mcp_tool_hint}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {data.verifications.length > 0 && (
-        <div className="mb-2">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">验证点</p>
-          <ul className="space-y-1">
-            {data.verifications.map((v, i) => (
-              <li key={i} className="text-xs text-foreground/80 flex items-center gap-1.5">
-                <CheckCircle2 className="h-3 w-3 text-green-500/60 flex-shrink-0" />
-                {v}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {data.app_package && (
-        <p className="text-[10px] text-muted-foreground mt-2">
-          包名: <span className="font-mono">{data.app_package}</span>
-        </p>
-      )}
     </div>
   );
 }
@@ -411,136 +298,43 @@ function DeviceInfoPanel({ status }: { status: { ready: boolean; mcp_connected: 
 
 // ── Timeline Item 渲染 ──────────────────────────────────────
 
-function TimelineItemBubble({ item }: { item: TimelineItem }) {
+function TimelineItemBubble({ item, isStreaming }: { item: TimelineItem; isStreaming?: boolean }) {
   switch (item.type) {
     case "user.message":
-      return <UserBubble item={item} />;
+      return (
+        <div className="flex justify-end">
+          <TimelineUserMessageItem item={item} />
+        </div>
+      );
     case "llm.call.cluster":
-      return <LLMCallBubble item={item} />;
+      return (
+        <div className="flex justify-start">
+          <div className="max-w-[80%] flex flex-col gap-2">
+            <LLMCallCluster item={item} isStreaming={isStreaming} />
+          </div>
+        </div>
+      );
     case "tool.call":
-      return <ToolCallBubble item={item} />;
+      return (
+        <div className="flex justify-start">
+          <div className="max-w-[80%] w-full">
+            <TimelineToolCallItem item={item} />
+          </div>
+        </div>
+      );
     case "error":
-      return <ErrorBubble item={item} />;
+      return (
+        <div className="flex justify-start">
+          <div className="max-w-[70%]">
+            <TimelineErrorItem item={item} />
+          </div>
+        </div>
+      );
     default:
       return null;
   }
 }
 
-function UserBubble({ item }: { item: UserMessageItem }) {
-  return (
-    <div className="flex justify-end">
-      <div className="max-w-[70%] rounded-2xl rounded-br-md bg-primary/15 border border-primary/20 px-4 py-2.5">
-        <p className="text-sm text-foreground">{item.content}</p>
-        <p className="mt-1 text-right text-[10px] text-muted-foreground">
-          {new Date(item.ts).toLocaleTimeString("zh-CN", { hour12: false })}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function LLMCallBubble({ item }: { item: LLMCallClusterItem }) {
-  const contentParts: string[] = [];
-  const reasoningParts: string[] = [];
-
-  for (const child of item.children) {
-    if (child.type === "content") {
-      contentParts.push(child.text);
-    } else if (child.type === "reasoning") {
-      reasoningParts.push(child.text);
-    }
-  }
-
-  const content = contentParts.join("");
-  const reasoning = reasoningParts.join("");
-
-  if (!content && !reasoning) return null;
-
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-[70%] rounded-2xl rounded-bl-md bg-secondary border border-border px-4 py-2.5">
-        {reasoning && (
-          <div className="mb-2 rounded-md bg-background/50 px-3 py-2">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Brain className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[10px] text-muted-foreground font-medium">思考过程</span>
-            </div>
-            <p className="text-xs text-muted-foreground whitespace-pre-wrap">{reasoning}</p>
-          </div>
-        )}
-        {content && (
-          <p className="text-sm text-foreground whitespace-pre-wrap">{content}</p>
-        )}
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          {new Date(item.ts).toLocaleTimeString("zh-CN", { hour12: false })}
-          {item.elapsedMs ? ` · ${item.elapsedMs}ms` : ""}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function ToolCallBubble({ item }: { item: ToolCallItem }) {
-  const isRunning = item.status === "running";
-  const isError = item.status === "error";
-  const raw = item as unknown as Record<string, unknown>;
-  const screenshotId = raw.screenshot_id as string | undefined;
-  const inputStr: string | null = item.input
-    ? typeof item.input === "string"
-      ? item.input
-      : JSON.stringify(item.input)
-    : null;
-
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-[80%] rounded-lg border border-border bg-secondary/60 px-3 py-2">
-        <div className="flex items-center gap-2">
-          {isRunning ? (
-            <Loader2 className="h-3.5 w-3.5 text-primary animate-spin" />
-          ) : isError ? (
-            <XCircle className="h-3.5 w-3.5 text-red-500" />
-          ) : (
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-          )}
-          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">
-            {item.name}
-          </span>
-          {item.elapsedMs !== undefined && (
-            <span className="text-[10px] text-muted-foreground">{item.elapsedMs}ms</span>
-          )}
-        </div>
-        {inputStr && (
-          <div className="mt-1.5 rounded bg-background/50 px-2 py-1 font-mono text-[11px] text-muted-foreground truncate">
-            {inputStr}
-          </div>
-        )}
-        {item.error && (
-          <p className="mt-1.5 text-xs text-red-400">{item.error}</p>
-        )}
-        {screenshotId && (
-          <img
-            src={api.getScreenshotUrl(screenshotId)}
-            alt="截图"
-            className="mt-2 max-h-40 rounded-md border border-border/40"
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ErrorBubble({ item }: { item: ErrorItem }) {
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-[70%] rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <XCircle className="h-4 w-4 text-red-500" />
-          <span className="text-sm text-red-400">{item.message}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── 操作日志面板 ─────────────────────────────────────────────
 
