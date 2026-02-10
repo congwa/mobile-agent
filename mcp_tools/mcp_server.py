@@ -1233,8 +1233,10 @@ def run_sse_server(host: str = "0.0.0.0", port: int = 3100):
     sse = SseServerTransport("/messages")
 
     async def handle_sse(request):
+        from starlette.responses import Response
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
             await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
+        return Response()
 
     starlette_app = Starlette(
         routes=[
