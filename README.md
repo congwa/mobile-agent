@@ -420,9 +420,9 @@ pip install pyautogui pyperclip pygetwindow
 
 <div align="center">
 
-<img src="docs/images/wechat-qr.jpg" alt="微信" width="250"/>
+<img src="images/qq.jpg" alt="QQ交流群" width="250"/>
 
-*添加微信交流（备注：mobile-mcp）*
+*扫码加入 QQ 交流群（群号：1080722489）*
 
 </div>
 
