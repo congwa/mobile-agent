@@ -38,7 +38,7 @@ Mobile MCP Agent 是一个移动端 AI 自动化测试平台，包含三个可�
 
 <div align="center">
 
-![演示动图](http://qiniu.biomed168.com/pic/demo.gif)
+![演示动图](docs/videos/demo.gif)
 
 *[查看高清视频 →](docs/videos/demo.mp4)*
 
@@ -46,7 +46,7 @@ Mobile MCP Agent 是一个移动端 AI 自动化测试平台，包含三个可�
 
 <div align="center">
 
-![软件运行效果](http://qiniu.biomed168.com/pic/agent1.png)
+![软件运行效果](images/agent1.png)
 
 *Agent 自动化测试执行效果*
 
