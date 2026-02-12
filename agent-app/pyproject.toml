@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-langgraph-agent-kit = { path = "/Users/wang/code/my/embedease-sdk/backend/langgraph-agent-kit" }
+langgraph-agent-kit = { path = "./packages/langgraph-agent-kit", editable = true }
 
 [build-system]
 requires = ["hatchling"]

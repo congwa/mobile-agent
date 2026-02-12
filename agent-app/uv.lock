@@ -585,8 +585,8 @@ wheels = [
 
 [[package]]
 name = "langgraph-agent-kit"
-version = "0.1.17"
-source = { directory = "../../../my/embedease-sdk/backend/langgraph-agent-kit" }
+version = "0.2.0"
+source = { editable = "packages/langgraph-agent-kit" }
 dependencies = [
     { name = "langchain-core" },
     { name = "langgraph" },
@@ -734,7 +734,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = ">=0.1" },
     { name = "langchain-openai", specifier = ">=0.3" },
     { name = "langgraph", specifier = ">=0.4" },
-    { name = "langgraph-agent-kit", directory = "../../../my/embedease-sdk/backend/langgraph-agent-kit" },
+    { name = "langgraph-agent-kit", editable = "packages/langgraph-agent-kit" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0" },
     { name = "mcp", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.0" },
