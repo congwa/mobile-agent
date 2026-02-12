@@ -38,7 +38,7 @@ Mobile MCP Agent is a mobile AI automation testing platform with three independe
 
 <div align="center">
 
-![Demo GIF](docs/videos/demo.gif)
+![Demo GIF](https://raw.githubusercontent.com/congwa/mobile-agent/main/docs/videos/demo.gif)
 
 *[Watch HD Video →](docs/videos/demo.mp4)*
 
@@ -46,7 +46,7 @@ Mobile MCP Agent is a mobile AI automation testing platform with three independe
 
 <div align="center">
 
-![App Screenshot](images/agent1.png)
+![App Screenshot](https://raw.githubusercontent.com/congwa/mobile-agent/main/images/agent1.png)
 
 *Agent automated test execution*
 
